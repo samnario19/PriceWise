@@ -5,10 +5,9 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-load_dotenv()
-
-# Directory containing this file (backend/). Used so SQLite is not tied to the shell cwd.
+# Directory containing this file (backend/). Used so SQLite/.env are not tied to the shell cwd.
 _BACKEND_DIR = Path(__file__).resolve().parent
+load_dotenv(_BACKEND_DIR / ".env")
 
 
 def _normalize_database_url(url: str) -> str:

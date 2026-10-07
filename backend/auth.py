@@ -1,8 +1,12 @@
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 SECRET_KEY = os.getenv("JWT_SECRET", "change-this-dev-secret")
 ALGORITHM = "HS256"
