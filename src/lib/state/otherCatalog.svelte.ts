@@ -1,4 +1,3 @@
-import { mockOtherMasters } from '$lib/data/mockOtherMasters';
 import type {
 	ChannelMarketplace,
 	ChannelScrapeInfo,
@@ -23,7 +22,7 @@ import {
 } from '$lib/utils/stockLots';
 
 export const otherCatalog = $state({
-	items: structuredClone(mockOtherMasters) as OtherItemMasterDTO[]
+	items: [] as OtherItemMasterDTO[]
 });
 
 export function computeOtherUnitCost(input: {
@@ -197,7 +196,7 @@ export function getOtherMaster(id: string): OtherItemMasterDTO | undefined {
 }
 
 export function resetOtherCatalog(): void {
-	otherCatalog.items = structuredClone(mockOtherMasters);
+	otherCatalog.items = [];
 }
 
 export function replaceOtherCatalogItems(next: OtherItemMasterDTO[]): void {

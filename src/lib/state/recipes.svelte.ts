@@ -1,4 +1,3 @@
-import { mockRecipes } from '$lib/data/mockRecipes';
 import type {
 	MeasureUnit,
 	RecipeDTO,
@@ -11,7 +10,7 @@ import { otherCatalog } from '$lib/state/otherCatalog.svelte';
 import { convertQuantity } from '$lib/utils/unitConvert';
 
 export const recipeStore = $state({
-	recipes: structuredClone(mockRecipes) as RecipeDTO[]
+	recipes: [] as RecipeDTO[]
 });
 
 function newId(prefix: string): string {
@@ -227,5 +226,5 @@ export function replaceRecipesFromApi(next: RecipeDTO[]): void {
 }
 
 export function resetRecipes(): void {
-	recipeStore.recipes = structuredClone(mockRecipes);
+	recipeStore.recipes = [];
 }
