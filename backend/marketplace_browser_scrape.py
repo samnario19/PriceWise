@@ -293,7 +293,15 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process",
+                "--no-zygote",
+            ],
         )
         try:
             context = browser.new_context(
@@ -538,7 +546,15 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"],
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process",
+                "--no-zygote",
+            ],
         )
         try:
             context = browser.new_context(

@@ -1,4 +1,5 @@
 import { API_BASE } from '$lib/api/apiBase';
+import { env } from '$env/dynamic/public';
 import type { ChannelMarketplace } from '$lib/types/recipe';
 
 export type ScrapeMarketplaceResult =
@@ -14,6 +15,20 @@ function parseJsonSafe(raw: string): unknown {
 }
 
 /**
+ * Get the base URL for scrape requests.
+ * Scraping uses Playwright (~55 s) so we bypass the Vercel serverless proxy
+ * (10 s timeout) and hit the Render backend directly via PUBLIC_BACKEND_URL.
+ * In local dev (no PUBLIC_BACKEND_URL) it falls back to the normal /api proxy.
+ */
+function getScrapeBase(): string {
+	const direct = env.PUBLIC_BACKEND_URL?.trim().replace(/\/+$/, '');
+	if (direct && /^https?:\/\//i.test(direct) && !/vercel\.app/i.test(direct)) {
+		return direct;
+	}
+	return API_BASE;
+}
+
+/**
  * Server-side Playwright capture (Chromium). Start the FastAPI backend and run
  * `playwright install chromium` in the backend venv once.
  */
@@ -21,8 +36,9 @@ export async function scrapeMarketplaceFromBrowser(
 	url: string,
 	marketplace: ChannelMarketplace
 ): Promise<ScrapeMarketplaceResult> {
+	const scrapeBase = getScrapeBase();
 	try {
-		const res = await fetch(`${API_BASE}/marketplace/scrape`, {
+		const res = await fetch(`${scrapeBase}/marketplace/scrape`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({ url, marketplace })
@@ -73,3 +89,4 @@ export async function scrapeMarketplaceFromBrowser(
 		};
 	}
 }
+
