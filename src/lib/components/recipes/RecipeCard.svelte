@@ -14,11 +14,17 @@
 	const {
 		recipe,
 		onCosting,
-		onSeeRecipe
+		onSeeRecipe,
+		onArchive,
+		onRestore,
+		onDeletePermanently
 	}: {
 		recipe: RecipeDTO;
 		onCosting: () => void;
 		onSeeRecipe: () => void;
+		onArchive?: () => void;
+		onRestore?: () => void;
+		onDeletePermanently?: () => void;
 	} = $props();
 
 	const masters = $derived(ingredientCatalog.items);
@@ -138,6 +144,12 @@
 					</span>
 				</div>
 			</div>
+			{#if recipe.archived}
+				<span class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-800 ring-1 ring-amber-300">
+					<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+					Archived
+				</span>
+			{/if}
 		</div>
 
 		<div class="mt-6 flex flex-col gap-4">
@@ -268,14 +280,63 @@
 		</div>
 	</div>
 
-	<div class="border-t border-zinc-100/50 bg-zinc-50/30 p-4">
-		<button
-			type="button"
-			class="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-900 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-black active:scale-[0.98]"
-			onclick={onSeeRecipe}
-		>
-			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-			Recipe Details
-		</button>
-	</div>
+	{#if recipe.archived}
+		<div class="flex flex-col gap-2 border-t border-zinc-100/50 bg-zinc-50/50 p-4 sm:flex-row sm:items-center">
+			<button
+				type="button"
+				class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-600 py-2.5 text-xs font-bold text-white shadow-md transition-all hover:bg-amber-700 active:scale-[0.98]"
+				onclick={(e) => {
+					e.stopPropagation();
+					onRestore?.();
+				}}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+				Restore (Undo)
+			</button>
+			<button
+				type="button"
+				class="flex items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50/80 px-3 py-2.5 text-xs font-bold text-red-700 transition hover:bg-red-100 active:scale-[0.98]"
+				title="Completely delete this recipe"
+				onclick={(e) => {
+					e.stopPropagation();
+					onDeletePermanently?.();
+				}}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+				Delete
+			</button>
+			<button
+				type="button"
+				class="flex items-center justify-center gap-1.5 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-xs font-bold text-zinc-700 shadow-sm transition hover:bg-zinc-50 active:scale-[0.98]"
+				onclick={onSeeRecipe}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+				Details
+			</button>
+		</div>
+	{:else}
+		<div class="flex items-center gap-2 border-t border-zinc-100/50 bg-zinc-50/30 p-4">
+			<button
+				type="button"
+				class="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-zinc-900 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-black active:scale-[0.98]"
+				onclick={onSeeRecipe}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+				Recipe Details
+			</button>
+			{#if onArchive}
+				<button
+					type="button"
+					class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-500 shadow-sm transition-all hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 active:scale-95"
+					title="Archive recipe"
+					onclick={(e) => {
+						e.stopPropagation();
+						onArchive();
+					}}
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+				</button>
+			{/if}
+		</div>
+	{/if}
 </article>

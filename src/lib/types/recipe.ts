@@ -157,6 +157,8 @@ export interface RecipeDTO {
 	pricing: RecipePricingDTO;
 	ingredientLines: RecipeIngredientLineDTO[];
 	otherLines: RecipeOtherLineDTO[];
+	archived?: boolean;
+	archivedAt?: string;
 }
 
 export interface OpexLineDTO {

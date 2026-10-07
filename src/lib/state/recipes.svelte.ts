@@ -46,8 +46,24 @@ export function updateRecipePricing(recipeId: string, pricing: RecipePricingDTO)
 	recipeStore.recipes = recipeStore.recipes.map((r) => (r.id === recipeId ? { ...r, pricing } : r));
 }
 
-export function deleteRecipe(recipeId: string): void {
+export function archiveRecipe(recipeId: string): void {
+	recipeStore.recipes = recipeStore.recipes.map((r) =>
+		r.id === recipeId ? { ...r, archived: true, archivedAt: new Date().toISOString() } : r
+	);
+}
+
+export function unarchiveRecipe(recipeId: string): void {
+	recipeStore.recipes = recipeStore.recipes.map((r) =>
+		r.id === recipeId ? { ...r, archived: false, archivedAt: undefined } : r
+	);
+}
+
+export function deleteRecipePermanently(recipeId: string): void {
 	recipeStore.recipes = recipeStore.recipes.filter((r) => r.id !== recipeId);
+}
+
+export function deleteRecipe(recipeId: string): void {
+	deleteRecipePermanently(recipeId);
 }
 
 export function addRecipeIngredientLine(

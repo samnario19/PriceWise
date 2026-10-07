@@ -9,9 +9,11 @@
 	import {
 		addRecipeIngredientLine,
 		addRecipeOtherLine,
-		deleteRecipe,
+		archiveRecipe,
 		deleteRecipeIngredientLine,
 		deleteRecipeOtherLine,
+		deleteRecipePermanently,
+		unarchiveRecipe,
 		updateRecipeIngredientLine,
 		updateRecipeName,
 		updateRecipeOtherLine
@@ -24,11 +26,15 @@
 	const {
 		recipe,
 		open,
-		onClose
+		onClose,
+		onArchive,
+		onRestore
 	}: {
 		recipe: RecipeDTO | null;
 		open: boolean;
 		onClose: () => void;
+		onArchive?: (recipe: RecipeDTO) => void;
+		onRestore?: (recipe: RecipeDTO) => void;
 	} = $props();
 
 	let backdrop: HTMLDivElement | undefined = $state();
@@ -102,9 +108,29 @@
 		pendingLineRemove = null;
 	}
 
-	function executeRecipeDelete(): void {
+	function executeRecipeArchive(): void {
 		if (!recipe) return;
-		deleteRecipe(recipe.id);
+		const r = recipe;
+		archiveRecipe(r.id);
+		pendingRecipeDelete = false;
+		pendingLineRemove = null;
+		onArchive?.(r);
+		onClose();
+	}
+
+	function executeRecipeRestore(): void {
+		if (!recipe) return;
+		const r = recipe;
+		unarchiveRecipe(r.id);
+		pendingRecipeDelete = false;
+		pendingLineRemove = null;
+		onRestore?.(r);
+		onClose();
+	}
+
+	function executeRecipeDeletePermanently(): void {
+		if (!recipe) return;
+		deleteRecipePermanently(recipe.id);
 		pendingRecipeDelete = false;
 		pendingLineRemove = null;
 		onClose();
@@ -464,6 +490,28 @@
 				class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto overflow-x-auto bg-zinc-50/80 p-4 sm:p-5"
 			>
 				<div class="mx-auto max-w-4xl">
+					{#if recipe.archived}
+						<div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/95 p-3.5 text-amber-950 shadow-sm sm:p-4">
+							<div class="flex items-center gap-2.5">
+								<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
+									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+								</div>
+								<div>
+									<p class="text-xs font-bold uppercase tracking-wider text-amber-900">Archived Recipe</p>
+									<p class="text-xs text-amber-800/90">This recipe is currently archived and hidden from active menu calculations.</p>
+								</div>
+							</div>
+							<button
+								type="button"
+								class="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-700 active:scale-95"
+								onclick={executeRecipeRestore}
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+								Restore to Active
+							</button>
+						</div>
+					{/if}
+
 					<div class="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
 						<span class="min-w-0" aria-hidden="true"></span>
 						<p class="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -967,14 +1015,35 @@
 							</div>
 						{/if}
 
-						<div class="flex justify-end pt-1">
-							<button
-								type="button"
-								class="text-xs font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
-								onclick={() => (pendingRecipeDelete = true)}
-							>
-								Delete entire recipe
-							</button>
+						<div class="flex items-center justify-between pt-1">
+							{#if recipe.archived}
+								<button
+									type="button"
+									class="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 underline-offset-2 transition hover:text-emerald-700 hover:underline"
+									onclick={executeRecipeRestore}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+									Restore to active
+								</button>
+								<button
+									type="button"
+									class="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
+									onclick={() => (pendingRecipeDelete = true)}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+									Completely delete recipe
+								</button>
+							{:else}
+								<span></span>
+								<button
+									type="button"
+									class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 underline-offset-2 transition hover:text-amber-800 hover:underline"
+									onclick={executeRecipeArchive}
+								>
+									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
+									Archive recipe
+								</button>
+							{/if}
 						</div>
 					</form>
 				</div>
@@ -997,11 +1066,11 @@
 
 <TypeToConfirmDeleteModal
 	open={pendingRecipeDelete}
-	title="Delete this recipe?"
+	title="Completely delete this recipe?"
 	description={recipe
-		? `This removes “${recipe.name}” and every ingredient / other line in it. Type delete to confirm.`
+		? `This permanently removes “${recipe.name}” and every ingredient / other line in it. This action cannot be undone. Type delete to confirm.`
 		: ''}
 	confirmPhrase="delete"
 	onClose={() => (pendingRecipeDelete = false)}
-	onConfirm={executeRecipeDelete}
+	onConfirm={executeRecipeDeletePermanently}
 />
