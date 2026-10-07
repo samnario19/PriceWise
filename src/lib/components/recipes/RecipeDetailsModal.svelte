@@ -60,7 +60,6 @@
 		| null
 	>(null);
 
-	let pendingRecipeDelete = $state(false);
 	/** Shown only after user taps Add with a unit that doesn’t convert to the catalog base. */
 	let addConversionReportShown = $state(false);
 	let costingPathHelpOpen = $state(false);
@@ -112,7 +111,6 @@
 		if (!recipe) return;
 		const r = recipe;
 		archiveRecipe(r.id);
-		pendingRecipeDelete = false;
 		pendingLineRemove = null;
 		onArchive?.(r);
 		onClose();
@@ -122,7 +120,6 @@
 		if (!recipe) return;
 		const r = recipe;
 		unarchiveRecipe(r.id);
-		pendingRecipeDelete = false;
 		pendingLineRemove = null;
 		onRestore?.(r);
 		onClose();
@@ -131,7 +128,6 @@
 	function executeRecipeDeletePermanently(): void {
 		if (!recipe) return;
 		deleteRecipePermanently(recipe.id);
-		pendingRecipeDelete = false;
 		pendingLineRemove = null;
 		onClose();
 	}
@@ -154,7 +150,6 @@
 		if (!open) {
 			quickAddIngredientOpen = false;
 			quickAddOtherOpen = false;
-			pendingRecipeDelete = false;
 			addConversionReportShown = false;
 			costingPathHelpOpen = false;
 			linesListExpanded = false;
@@ -256,16 +251,12 @@
 	}
 
 	function onBackdropMouseDown(e: MouseEvent): void {
-		if (quickAddIngredientOpen || quickAddOtherOpen || pendingRecipeDelete) return;
+		if (quickAddIngredientOpen || quickAddOtherOpen) return;
 		if (e.target === backdrop) onClose();
 	}
 
 	function onKeydown(e: KeyboardEvent): void {
 		if (e.key === 'Escape') {
-			if (pendingRecipeDelete) {
-				pendingRecipeDelete = false;
-				return;
-			}
 			if (costingPathHelpOpen) {
 				costingPathHelpOpen = false;
 				return;
@@ -1028,7 +1019,7 @@
 								<button
 									type="button"
 									class="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
-									onclick={() => (pendingRecipeDelete = true)}
+									onclick={executeRecipeDeletePermanently}
 								>
 									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
 									Completely delete recipe
@@ -1062,15 +1053,4 @@
 	description={pendingLineRemove ? `Remove “${pendingLineRemove.label}” from this recipe.` : ''}
 	onClose={() => (pendingLineRemove = null)}
 	onConfirm={executeLineRemove}
-/>
-
-<TypeToConfirmDeleteModal
-	open={pendingRecipeDelete}
-	title="Completely delete this recipe?"
-	description={recipe
-		? `This permanently removes “${recipe.name}” and every ingredient / other line in it. This action cannot be undone. Type delete to confirm.`
-		: ''}
-	confirmPhrase="delete"
-	onClose={() => (pendingRecipeDelete = false)}
-	onConfirm={executeRecipeDeletePermanently}
 />

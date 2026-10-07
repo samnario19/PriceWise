@@ -3,7 +3,6 @@
 	import RecipeCard from '$lib/components/recipes/RecipeCard.svelte';
 	import RecipeCostingDrawer from '$lib/components/recipes/RecipeCostingDrawer.svelte';
 	import RecipeDetailsModal from '$lib/components/recipes/RecipeDetailsModal.svelte';
-	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
 	import type { RecipeDTO } from '$lib/types/recipe';
 	import {
 		addRecipe,
@@ -19,7 +18,6 @@
 	let quickAddOpen = $state(false);
 	let currentTab = $state<'active' | 'archived'>('active');
 
-	let pendingPermanentDeleteRecipe = $state<RecipeDTO | null>(null);
 	let lastArchivedRecipe = $state<RecipeDTO | null>(null);
 	let toastMessage = $state<string | null>(null);
 	let toastTimer = $state<ReturnType<typeof setTimeout> | null>(null);
@@ -109,14 +107,14 @@
 		}, 3000);
 	}
 
-	function promptPermanentDelete(recipe: RecipeDTO): void {
-		pendingPermanentDeleteRecipe = recipe;
-	}
-
-	function executePermanentDelete(): void {
-		if (!pendingPermanentDeleteRecipe) return;
-		deleteRecipePermanently(pendingPermanentDeleteRecipe.id);
-		pendingPermanentDeleteRecipe = null;
+	function handleDeletePermanently(recipe: RecipeDTO): void {
+		deleteRecipePermanently(recipe.id);
+		toastMessage = `Recipe “${recipe.name}” deleted permanently.`;
+		lastArchivedRecipe = null;
+		if (toastTimer) clearTimeout(toastTimer);
+		toastTimer = setTimeout(() => {
+			toastMessage = null;
+		}, 4000);
 	}
 </script>
 
@@ -247,7 +245,7 @@
 					onSeeRecipe={() => openDetail(recipe.id)}
 					onArchive={() => handleArchive(recipe)}
 					onRestore={() => handleRestore(recipe)}
-					onDeletePermanently={() => promptPermanentDelete(recipe)}
+					onDeletePermanently={() => handleDeletePermanently(recipe)}
 				/>
 			{/each}
 		</div>
@@ -297,15 +295,4 @@
 	onClose={closeDetail}
 	onArchive={handleArchive}
 	onRestore={handleRestore}
-/>
-
-<TypeToConfirmDeleteModal
-	open={pendingPermanentDeleteRecipe !== null}
-	title="Completely delete this recipe?"
-	description={pendingPermanentDeleteRecipe
-		? `This will permanently remove “${pendingPermanentDeleteRecipe.name}” and all its ingredients and data. This cannot be undone.`
-		: ''}
-	confirmPhrase="delete"
-	onClose={() => (pendingPermanentDeleteRecipe = null)}
-	onConfirm={executePermanentDelete}
 />
