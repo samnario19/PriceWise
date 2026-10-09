@@ -28,8 +28,7 @@ class TokenOut(BaseModel):
 
 
 class GoogleAuthIn(BaseModel):
-    credential: Optional[str] = None
-    email: Optional[str] = None
+    credential: str
 
 
 class UserRegisterIn(BaseModel):

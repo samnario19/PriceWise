@@ -68,7 +68,7 @@ export function homePathForUser(): string {
 	return homePathForRole(authState.user.role);
 }
 
-export async function loginWithGoogle(payload: { credential?: string; email?: string }): Promise<void> {
+export async function loginWithGoogle(payload: { credential: string }): Promise<void> {
 	const endpoint = API_BASE + '/auth/google';
 	const res = await fetch(endpoint, {
 		method: 'POST',

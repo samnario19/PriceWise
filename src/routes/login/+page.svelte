@@ -87,6 +87,22 @@
 				<img src="/icon.png" alt="PriceWise" class="h-16 w-16 object-contain" />
 			</div>
 
+						<a
+				href="/"
+				onclick={(e) => {
+					if (typeof window !== 'undefined' && window.history.length > 1) {
+						e.preventDefault();
+						window.history.back();
+					}
+				}}
+				class="group mb-6 inline-flex items-center gap-2 text-sm font-semibold text-zinc-500 hover:text-emerald-600 transition-colors"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4 transition-transform group-hover:-translate-x-1">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+				</svg>
+				Back to landing page
+			</a>
+
 			<h2 class="text-3xl font-bold tracking-tight text-zinc-900">Welcome back</h2>
 			<p class="mt-2 text-zinc-600">Enter your credentials to access your dashboard.</p>
 

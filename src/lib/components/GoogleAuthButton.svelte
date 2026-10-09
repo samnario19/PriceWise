@@ -11,9 +11,7 @@
 	let { text = 'Continue with Google', onError }: Props = $props();
 
 	let loading = $state(false);
-	let showModal = $state(false);
-	let fallbackEmail = $state('');
-	let fallbackError = $state('');
+	let showInfoModal = $state(false);
 	let googleScriptLoaded = $state(false);
 
 	const googleClientId = typeof import.meta.env?.VITE_GOOGLE_CLIENT_ID === 'string'
@@ -21,7 +19,6 @@
 		: '';
 
 	onMount(() => {
-		// Load Google Identity Services if client ID is set
 		if (googleClientId && typeof window !== 'undefined') {
 			if (!(window as any).google?.accounts?.id) {
 				const script = document.createElement('script');
@@ -53,7 +50,7 @@
 					await loginWithGoogle({ credential: response.credential });
 					await goto(homePathForUser());
 				} catch (e) {
-					const msg = e instanceof Error ? e.message : 'Google sign-in failed';
+					const msg = e instanceof Error ? e.message : 'Google authentication failed';
 					onError?.(msg);
 				} finally {
 					loading = false;
@@ -66,51 +63,21 @@
 		if (loading) return;
 
 		if (googleClientId && (window as any).google?.accounts?.id) {
-			// Trigger Google Identity Services prompt
 			loading = true;
 			try {
 				(window as any).google.accounts.id.prompt((notification: any) => {
 					if (notification.isNotDisplayed() || notification.isSkippedMomentum()) {
-						// Fallback to manual entry modal if prompt is suppressed or blocked
 						loading = false;
-						showModal = true;
+						showInfoModal = true;
 					}
 				});
 			} catch (e) {
 				loading = false;
-				showModal = true;
+				showInfoModal = true;
 			}
 		} else {
-			// No Google Client ID configured yet — open seamless Gmail modal
-			showModal = true;
-		}
-	}
-
-	async function handleFallbackSubmit(e: Event) {
-		e.preventDefault();
-		fallbackError = '';
-		const trimmed = fallbackEmail.trim();
-
-		if (!trimmed) {
-			fallbackError = 'Please enter your Gmail address';
-			return;
-		}
-
-		if (!trimmed.toLowerCase().endsWith('@gmail.com')) {
-			fallbackError = 'Must be a valid @gmail.com address';
-			return;
-		}
-
-		loading = true;
-		try {
-			await loginWithGoogle({ email: trimmed });
-			showModal = false;
-			await goto(homePathForUser());
-		} catch (e) {
-			fallbackError = e instanceof Error ? e.message : 'Google sign-in failed';
-			onError?.(fallbackError);
-		} finally {
-			loading = false;
+			// No Google Client ID configured: explain requirement to user
+			showInfoModal = true;
 		}
 	}
 </script>
@@ -123,7 +90,7 @@
 >
 	{#if loading}
 		<div class="h-5 w-5 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent"></div>
-		<span>Authenticating with Google...</span>
+		<span>Verifying with Google...</span>
 	{:else}
 		<!-- Google Multi-Color SVG Icon -->
 		<svg class="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
@@ -148,26 +115,26 @@
 	{/if}
 </button>
 
-<!-- Gmail Direct / Dev Modal -->
-{#if showModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
+<!-- Google Client ID Setup Notice Modal -->
+{#if showInfoModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
 		<div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl transition-all">
 			<div class="flex items-center justify-between pb-3 border-b border-zinc-100">
 				<div class="flex items-center gap-2.5">
-					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-600">
+					<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
 						<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+							<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h2v2h-2v-2zm0-10h2v8h-2V7z"/>
 						</svg>
 					</div>
 					<div>
-						<h3 class="text-base font-bold text-zinc-900">Sign in with Gmail</h3>
-						<p class="text-xs text-zinc-500">Fast sign-in with your Google account</p>
+						<h3 class="text-base font-bold text-zinc-900">Google OAuth Verification</h3>
+						<p class="text-xs text-zinc-500">Secure Gmail Authentication</p>
 					</div>
 				</div>
 				<button
 					type="button"
 					aria-label="Close"
-					onclick={() => (showModal = false)}
+					onclick={() => (showInfoModal = false)}
 					class="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
 				>
 					<svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -176,55 +143,34 @@
 				</button>
 			</div>
 
-			<form onsubmit={handleFallbackSubmit} class="mt-5 space-y-4">
-				<div>
-					<label for="gmail-input" class="block text-xs font-semibold text-zinc-700">Gmail Address</label>
-					<div class="mt-1.5 relative">
-						<input
-							type="email"
-							id="gmail-input"
-							bind:value={fallbackEmail}
-							placeholder="example@gmail.com"
-							required
-							class="block w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-900 shadow-sm focus:border-emerald-500 focus:bg-white focus:outline-none focus:ring-4 focus:ring-emerald-500/10"
-						/>
+			<div class="mt-4 space-y-3">
+				<p class="text-sm text-zinc-600 leading-relaxed">
+					To securely verify your real Gmail account with Google's password & 2FA servers, Google OAuth requires a registered Client ID.
+				</p>
+
+				<div class="rounded-xl bg-amber-50/80 p-3.5 text-xs text-amber-900 leading-relaxed border border-amber-200/80">
+					<p class="font-bold text-amber-950 mb-1">How to enable 1-Click Google Sign-In:</p>
+					Add your Google OAuth Client ID to your project's <code class="bg-amber-100 px-1 py-0.5 rounded font-mono text-amber-900">.env</code>:
+					<div class="mt-1.5 rounded bg-amber-100/70 p-2 font-mono text-[11px] text-amber-950">
+						VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 					</div>
-					{#if fallbackError}
-						<p class="mt-1.5 text-xs text-red-500">{fallbackError}</p>
-					{/if}
 				</div>
 
-				<div class="rounded-lg bg-emerald-50/60 p-3 text-xs text-emerald-800 leading-relaxed border border-emerald-100/80">
-					<p class="font-semibold text-emerald-900">Seamless Account Access</p>
-					If you have an existing account with this Gmail, you'll be signed in. If not, a new account will be created automatically.
+				<div class="rounded-xl bg-zinc-50 p-3.5 text-xs text-zinc-600 border border-zinc-200">
+					<p class="font-bold text-zinc-800 mb-1">Standard Login:</p>
+					You can always log in securely with your Gmail account using your password in the login form below.
 				</div>
+			</div>
 
-				{#if !googleClientId}
-					<div class="rounded-lg bg-zinc-50 p-3 text-[11px] text-zinc-500 leading-normal border border-zinc-200">
-						💡 <strong>Note for Admin/Dev:</strong> To activate Google's one-click popup dialog, set <code class="text-zinc-700 bg-zinc-200/70 px-1 py-0.5 rounded">VITE_GOOGLE_CLIENT_ID</code> in your <code class="text-zinc-700">.env</code>.
-					</div>
-				{/if}
-
-				<div class="flex items-center justify-end gap-2 pt-2">
-					<button
-						type="button"
-						onclick={() => (showModal = false)}
-						class="rounded-xl px-4 py-2.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-100"
-					>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						disabled={loading}
-						class="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-200 hover:bg-emerald-700 disabled:opacity-60"
-					>
-						{#if loading}
-							<div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-						{/if}
-						Continue
-					</button>
-				</div>
-			</form>
+			<div class="mt-6 flex justify-end gap-2">
+				<button
+					type="button"
+					onclick={() => (showInfoModal = false)}
+					class="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-200 hover:bg-emerald-700"
+				>
+					Use Email & Password
+				</button>
+			</div>
 		</div>
 	</div>
 {/if}

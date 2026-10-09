@@ -311,30 +311,29 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.post("/auth/google", response_model=TokenOut)
 def auth_google(payload: GoogleAuthIn, db: Session = Depends(get_db)):
-    email: Optional[str] = None
+    if not payload.credential or not payload.credential.strip():
+        raise HTTPException(status_code=400, detail="Google authentication credential is required")
 
-    if payload.credential:
-        try:
-            req_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={payload.credential}"
-            req = urllib.request.Request(req_url, headers={"User-Agent": "PriceWise-Server"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                email = data.get("email")
-                google_client_id = os.getenv("GOOGLE_CLIENT_ID")
-                if google_client_id and data.get("aud") != google_client_id:
-                    raise HTTPException(status_code=400, detail="Google token client ID mismatch")
-        except urllib.error.HTTPError as exc:
-            raise HTTPException(status_code=400, detail="Invalid Google token credential") from exc
-        except HTTPException:
-            raise
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail=f"Google authentication failed: {exc}") from exc
-    elif payload.email:
-        email = payload.email.lower().strip()
-    else:
-        raise HTTPException(status_code=400, detail="Google credential or email is required")
+    try:
+        req_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={payload.credential}"
+        req = urllib.request.Request(req_url, headers={"User-Agent": "PriceWise-Server"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            email = data.get("email")
+            email_verified = data.get("email_verified")
+            if not email or str(email_verified).lower() != "true":
+                raise HTTPException(status_code=400, detail="Google account email is not verified by Google")
+            google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+            if google_client_id and data.get("aud") != google_client_id:
+                raise HTTPException(status_code=400, detail="Google token client ID mismatch")
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(status_code=400, detail="Invalid Google token credential") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Google authentication failed: {exc}") from exc
 
-    if not email or not email.lower().endswith("@gmail.com"):
+    if not email.lower().endswith("@gmail.com"):
         raise HTTPException(status_code=400, detail="Only Gmail addresses (@gmail.com) are allowed")
 
     email = email.lower().strip()

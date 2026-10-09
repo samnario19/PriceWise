@@ -67,11 +67,11 @@
 
 	$effect(() => {
 		if (!browser) return;
-		const publicPaths = ['/', '/login', '/register', '/register/supplier'];
+		const publicPaths = ['/', '/landing', '/login', '/register', '/register/supplier'];
 		const path = $page.url.pathname;
 		if (publicPaths.includes(path) || path.startsWith('/register/supplier')) return;
 		if (!authState.token) {
-			void goto('/login');
+			void goto('/login', { replaceState: true });
 			return;
 		}
 		if (!authState.user) return;
