@@ -131,7 +131,7 @@
 
 			<div class="mt-8">
 				<GoogleAuthButton
-					text="Sign up with Google"
+					text="signup_with"
 					onError={(msg) => {
 						error = msg;
 					}}

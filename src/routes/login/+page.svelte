@@ -108,7 +108,7 @@
 
 			<div class="mt-8">
 				<GoogleAuthButton
-					text="Sign in with Google"
+					text="signin_with"
 					onError={(msg) => {
 						error = msg;
 						showAccountError = true;
