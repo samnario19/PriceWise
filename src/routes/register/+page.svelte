@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { API_BASE } from '$lib/api/apiBase';
+	import GoogleAuthButton from '$lib/components/GoogleAuthButton.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -112,7 +113,25 @@
 			<h2 class="text-3xl font-bold tracking-tight text-zinc-900">Create account</h2>
 			<p class="mt-2 text-zinc-600">Enter your details to get started with PriceWise.</p>
 
-			<form onsubmit={submit} class="mt-10 space-y-4">
+			<div class="mt-8">
+				<GoogleAuthButton
+					text="Sign up with Google"
+					onError={(msg) => {
+						error = msg;
+					}}
+				/>
+
+				<div class="relative my-6">
+					<div class="absolute inset-0 flex items-center">
+						<div class="w-full border-t border-zinc-200"></div>
+					</div>
+					<div class="relative flex justify-center text-xs uppercase">
+						<span class="bg-white px-3 text-zinc-400 font-semibold tracking-wider">or register with email</span>
+					</div>
+				</div>
+			</div>
+
+			<form onsubmit={submit} class="space-y-4">
 				<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 					<div>
 						<label for="firstName" class="block text-sm font-semibold text-zinc-900">First Name</label>

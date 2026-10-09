@@ -67,3 +67,19 @@ export function homePathForUser(): string {
 	if (!authState.user) return '/login';
 	return homePathForRole(authState.user.role);
 }
+
+export async function loginWithGoogle(payload: { credential?: string; email?: string }): Promise<void> {
+	const res = await fetch(${API_BASE}/auth/google, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(payload)
+	});
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({ detail: 'Google sign-in failed' }));
+		throw new Error(err.detail || 'Google sign-in failed');
+	}
+	const data = await res.json();
+	saveToken(data.access_token);
+	await fetchMe();
+}
+

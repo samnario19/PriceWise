@@ -1,7 +1,11 @@
 import asyncio
+import json
 import os
+import secrets
+import urllib.error
+import urllib.request
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +33,7 @@ from models import (
     UserWorkspace,
 )
 from schemas import (
+    GoogleAuthIn,
     IngredientCreateIn,
     IngredientOut,
     LocalStoreDetailOut,
@@ -300,6 +305,47 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = db.scalar(select(User).where(User.email == form_data.username.lower().strip()))
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    token = create_access_token(str(user.id))
+    return TokenOut(access_token=token)
+
+
+@app.post("/auth/google", response_model=TokenOut)
+def auth_google(payload: GoogleAuthIn, db: Session = Depends(get_db)):
+    email: Optional[str] = None
+
+    if payload.credential:
+        try:
+            req_url = f"https://oauth2.googleapis.com/tokeninfo?id_token={payload.credential}"
+            req = urllib.request.Request(req_url, headers={"User-Agent": "PriceWise-Server"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                email = data.get("email")
+                google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+                if google_client_id and data.get("aud") != google_client_id:
+                    raise HTTPException(status_code=400, detail="Google token client ID mismatch")
+        except urllib.error.HTTPError as exc:
+            raise HTTPException(status_code=400, detail="Invalid Google token credential") from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Google authentication failed: {exc}") from exc
+    elif payload.email:
+        email = payload.email.lower().strip()
+    else:
+        raise HTTPException(status_code=400, detail="Google credential or email is required")
+
+    if not email or not email.lower().endswith("@gmail.com"):
+        raise HTTPException(status_code=400, detail="Only Gmail addresses (@gmail.com) are allowed")
+
+    email = email.lower().strip()
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        random_pwd = secrets.token_urlsafe(32)
+        user = User(email=email, password_hash=hash_password(random_pwd), role="cafe_owner")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
     token = create_access_token(str(user.id))
     return TokenOut(access_token=token)
 

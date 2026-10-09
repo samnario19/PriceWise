@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { API_BASE } from '$lib/api/apiBase';
 	import { saveToken, fetchMe, homePathForUser } from '$lib/state/auth.svelte';
+	import GoogleAuthButton from '$lib/components/GoogleAuthButton.svelte';
 
 	let email = $state('');
 	let password = $state('');
@@ -89,7 +90,26 @@
 			<h2 class="text-3xl font-bold tracking-tight text-zinc-900">Welcome back</h2>
 			<p class="mt-2 text-zinc-600">Enter your credentials to access your dashboard.</p>
 
-			<form onsubmit={submit} class="mt-10 space-y-6">
+			<div class="mt-8">
+				<GoogleAuthButton
+					text="Sign in with Google"
+					onError={(msg) => {
+						error = msg;
+						showAccountError = true;
+					}}
+				/>
+
+				<div class="relative my-6">
+					<div class="absolute inset-0 flex items-center">
+						<div class="w-full border-t border-zinc-200"></div>
+					</div>
+					<div class="relative flex justify-center text-xs uppercase">
+						<span class="bg-white px-3 text-zinc-400 font-semibold tracking-wider">or sign in with email</span>
+					</div>
+				</div>
+			</div>
+
+			<form onsubmit={submit} class="space-y-6">
 				<div>
 					<label for="email" class="block text-sm font-semibold text-zinc-900">Email address</label>
 					<div class="mt-2">

@@ -1,6 +1,6 @@
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -25,6 +25,11 @@ def convert_to_base(package_size: float, package_unit: str) -> tuple[float, str]
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class GoogleAuthIn(BaseModel):
+    credential: Optional[str] = None
+    email: Optional[str] = None
 
 
 class UserRegisterIn(BaseModel):
