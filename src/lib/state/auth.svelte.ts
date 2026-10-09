@@ -69,7 +69,8 @@ export function homePathForUser(): string {
 }
 
 export async function loginWithGoogle(payload: { credential?: string; email?: string }): Promise<void> {
-	const res = await fetch(${API_BASE}/auth/google, {
+	const endpoint = API_BASE + '/auth/google';
+	const res = await fetch(endpoint, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(payload)
@@ -82,4 +83,3 @@ export async function loginWithGoogle(payload: { credential?: string; email?: st
 	saveToken(data.access_token);
 	await fetchMe();
 }
-

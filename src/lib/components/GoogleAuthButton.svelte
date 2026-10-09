@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { loginWithGoogle } from '$lib/state/auth.svelte';
+	import { loginWithGoogle, homePathForUser } from '$lib/state/auth.svelte';
 
 	interface Props {
 		text?: string;
