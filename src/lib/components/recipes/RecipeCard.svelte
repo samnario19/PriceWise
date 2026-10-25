@@ -9,6 +9,8 @@
 		type RecipeMarketSavingsChannel
 	} from '$lib/utils/recipeCosting';
 	import RecipeCardHelp from '$lib/components/recipes/RecipeCardHelp.svelte';
+	import RecipeAvailabilityBadge from '$lib/components/recipes/RecipeAvailabilityBadge.svelte';
+	import { computeRecipeAvailability } from '$lib/utils/recipeAvailability';
 	import { formatPhp } from '$lib/utils/numberFormat';
 
 	const {
@@ -29,6 +31,7 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
+	const availability = $derived(computeRecipeAvailability(recipe, masters, otherMasters));
 	const ingredientLineCount = $derived(recipe.ingredientLines.length);
 	const otherLineCount = $derived(recipe.otherLines.length);
 	const linesCount = $derived(ingredientLineCount + otherLineCount);
@@ -142,6 +145,10 @@
 						Others
 						<span class="rounded bg-zinc-200/90 px-1.5 py-0.5 tabular-nums text-zinc-800">{otherLineCount}</span>
 					</span>
+				</div>
+				<!-- Real-time Product Availability Badge -->
+				<div class="pt-2">
+					<RecipeAvailabilityBadge {availability} size="sm" showBottleneck={true} />
 				</div>
 			</div>
 			{#if recipe.archived}

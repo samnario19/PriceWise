@@ -22,6 +22,9 @@
 	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
 	import { batchesForProductName, defaultBatchForProduct, isBatchOutOfStock, productNameKey, recipeBatchOptionLabel, uniqueProductNames } from '$lib/utils/catalogBatch';
 	import { formatPhp } from '$lib/utils/numberFormat';
+	import RecipeAvailabilityBadge from '$lib/components/recipes/RecipeAvailabilityBadge.svelte';
+	import RecipeAvailabilityCard from '$lib/components/recipes/RecipeAvailabilityCard.svelte';
+	import { computeRecipeAvailability } from '$lib/utils/recipeAvailability';
 
 	const {
 		recipe,
@@ -72,6 +75,10 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
+	const availability = $derived.by(() => {
+		if (!recipe) return null;
+		return computeRecipeAvailability(recipe, masters, otherMasters);
+	});
 
 	const combinedLines = $derived.by((): CombinedRow[] => {
 		if (!recipe) return [];
@@ -462,6 +469,11 @@
 							<span class="text-xs tabular-nums text-zinc-500">
 								Lines total: <span class="font-semibold text-zinc-300">{combinedLines.length}</span>
 							</span>
+							{#if availability}
+								<div class="inline-flex items-center">
+									<RecipeAvailabilityBadge {availability} size="sm" showBottleneck={false} />
+								</div>
+							{/if}
 						</div>
 					</div>
 					<button
@@ -500,6 +512,12 @@
 								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
 								Restore to Active
 							</button>
+						</div>
+					{/if}
+
+					{#if availability}
+						<div class="mb-4">
+							<RecipeAvailabilityCard {availability} />
 						</div>
 					{/if}
 

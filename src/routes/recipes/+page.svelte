@@ -11,12 +11,16 @@
 		recipeStore,
 		unarchiveRecipe
 	} from '$lib/state/recipes.svelte';
+	import { ingredientCatalog } from '$lib/state/ingredientCatalog.svelte';
+	import { otherCatalog } from '$lib/state/otherCatalog.svelte';
+	import { computeRecipeAvailability } from '$lib/utils/recipeAvailability';
 
 	let search = $state('');
 	let detailRecipeId = $state<string | null>(null);
 	let costingRecipeId = $state<string | null>(null);
 	let quickAddOpen = $state(false);
 	let currentTab = $state<'active' | 'archived'>('active');
+	let availabilityFilter = $state<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
 
 	let lastArchivedRecipe = $state<RecipeDTO | null>(null);
 	let toastMessage = $state<string | null>(null);
@@ -25,10 +29,42 @@
 	const activeRecipes = $derived(recipeStore.recipes.filter((r) => !r.archived));
 	const archivedRecipes = $derived(recipeStore.recipes.filter((r) => !!r.archived));
 
+	const recipeAvailabilityMap = $derived.by(() => {
+		const map = new Map<string, ReturnType<typeof computeRecipeAvailability>>();
+		for (const r of recipeStore.recipes) {
+			map.set(r.id, computeRecipeAvailability(r, ingredientCatalog.items, otherCatalog.items));
+		}
+		return map;
+	});
+
+	const inStockCount = $derived(
+		activeRecipes.filter((r) => recipeAvailabilityMap.get(r.id)?.status === 'in_stock').length
+	);
+	const lowStockCount = $derived(
+		activeRecipes.filter((r) => recipeAvailabilityMap.get(r.id)?.status === 'low_stock').length
+	);
+	const outOfStockCount = $derived(
+		activeRecipes.filter((r) => {
+			const s = recipeAvailabilityMap.get(r.id)?.status;
+			return s === 'out_of_stock' || s === 'unconfigured';
+		}).length
+	);
+
 	const targetList = $derived(currentTab === 'active' ? activeRecipes : archivedRecipes);
 
 	const filtered = $derived(
-		targetList.filter((r) => r.name.toLowerCase().includes(search.toLowerCase().trim()))
+		targetList.filter((r) => {
+			const matchesSearch = r.name.toLowerCase().includes(search.toLowerCase().trim());
+			if (!matchesSearch) return false;
+			if (currentTab !== 'active' || availabilityFilter === 'all') return true;
+			const avail = recipeAvailabilityMap.get(r.id);
+			if (availabilityFilter === 'in_stock') return avail?.status === 'in_stock';
+			if (availabilityFilter === 'low_stock') return avail?.status === 'low_stock';
+			if (availabilityFilter === 'out_of_stock') {
+				return avail?.status === 'out_of_stock' || avail?.status === 'unconfigured';
+			}
+			return true;
+		})
 	);
 
 	const detailRecipe = $derived(
@@ -204,6 +240,59 @@
 			</p>
 		{/if}
 	</div>
+
+	<!-- Availability Sub-Filter Pills (Active tab only) -->
+	{#if currentTab === 'active' && activeRecipes.length > 0}
+		<div class="flex flex-wrap items-center gap-2 pt-1">
+			<span class="text-xs font-semibold text-zinc-500 mr-1">Product Availability:</span>
+			<button
+				type="button"
+				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all {availabilityFilter === 'all'
+					? 'bg-zinc-800 text-white shadow-xs'
+					: 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'}"
+				onclick={() => (availabilityFilter = 'all')}
+			>
+				<span>All</span>
+				<span class="rounded-full bg-black/10 px-1.5 py-0.2 text-[10px] tabular-nums">{activeRecipes.length}</span>
+			</button>
+
+			<button
+				type="button"
+				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all {availabilityFilter === 'in_stock'
+					? 'bg-emerald-600 text-white shadow-xs'
+					: 'bg-emerald-50 text-emerald-800 border border-emerald-200/80 hover:bg-emerald-100'}"
+				onclick={() => (availabilityFilter = 'in_stock')}
+			>
+				<span class="h-1.5 w-1.5 rounded-full {availabilityFilter === 'in_stock' ? 'bg-white' : 'bg-emerald-500'}"></span>
+				<span>In Stock</span>
+				<span class="rounded-full bg-black/10 px-1.5 py-0.2 text-[10px] tabular-nums">{inStockCount}</span>
+			</button>
+
+			<button
+				type="button"
+				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all {availabilityFilter === 'low_stock'
+					? 'bg-amber-500 text-white shadow-xs'
+					: 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'}"
+				onclick={() => (availabilityFilter = 'low_stock')}
+			>
+				<span class="h-1.5 w-1.5 rounded-full {availabilityFilter === 'low_stock' ? 'bg-white' : 'bg-amber-500'}"></span>
+				<span>Low Stock</span>
+				<span class="rounded-full bg-black/10 px-1.5 py-0.2 text-[10px] tabular-nums">{lowStockCount}</span>
+			</button>
+
+			<button
+				type="button"
+				class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition-all {availabilityFilter === 'out_of_stock'
+					? 'bg-rose-600 text-white shadow-xs'
+					: 'bg-rose-50 text-rose-800 border border-rose-200/80 hover:bg-rose-100'}"
+				onclick={() => (availabilityFilter = 'out_of_stock')}
+			>
+				<span class="h-1.5 w-1.5 rounded-full {availabilityFilter === 'out_of_stock' ? 'bg-white' : 'bg-rose-500'}"></span>
+				<span>Out of Stock</span>
+				<span class="rounded-full bg-black/10 px-1.5 py-0.2 text-[10px] tabular-nums">{outOfStockCount}</span>
+			</button>
+		</div>
+	{/if}
 
 	<!-- Recipe Cards or Empty State -->
 	{#if filtered.length === 0}

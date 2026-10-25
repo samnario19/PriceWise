@@ -10,6 +10,8 @@
 		computeAutoSyncedRecipePricing,
 		recipePricingMatchesSuggested
 	} from '$lib/utils/recipeCosting';
+	import { computeRecipeAvailability } from '$lib/utils/recipeAvailability';
+	import RecipeAvailabilityBadge from '$lib/components/recipes/RecipeAvailabilityBadge.svelte';
 
 	const {
 		recipe,
@@ -25,6 +27,10 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
+	const availability = $derived.by(() => {
+		if (!recipe) return null;
+		return computeRecipeAvailability(recipe, masters, otherMasters);
+	});
 
 	/** Persist suggested channel list prices whenever costing opens (keeps recipe cards / summary in sync). */
 	$effect(() => {
@@ -82,7 +88,12 @@
 			>
 				<div class="min-w-0">
 					<h2 id="costing-title" class="text-lg font-semibold tracking-tight text-zinc-900">{recipe.name}</h2>
-					<p class="mt-0.5 text-sm font-medium text-teal-800/80">Costing & pricing</p>
+					<div class="mt-1 flex flex-wrap items-center gap-2">
+						<p class="text-sm font-medium text-teal-800/80">Costing & pricing</p>
+						{#if availability}
+							<RecipeAvailabilityBadge {availability} size="sm" showBottleneck={true} />
+						{/if}
+					</div>
 				</div>
 				<button
 					type="button"

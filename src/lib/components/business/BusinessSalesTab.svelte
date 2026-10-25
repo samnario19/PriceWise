@@ -7,6 +7,8 @@
 	import { aggregateSales } from '$lib/utils/businessAnalytics';
 	import { formatCatalogDateShort } from '$lib/utils/catalogDisplay';
 	import { formatPhp } from '$lib/utils/numberFormat';
+	import { computeRecipeAvailability } from '$lib/utils/recipeAvailability';
+	import RecipeAvailabilityBadge from '$lib/components/recipes/RecipeAvailabilityBadge.svelte';
 
 	let recipeId = $state('');
 	let quantity = $state(1);
@@ -16,10 +18,21 @@
 	let salesView = $state<'day' | 'week' | 'month' | 'year'>('day');
 
 	const recipes = $derived(recipeStore.recipes);
+	const activeRecipes = $derived(recipes.filter((r) => !r.archived));
 	const selectedRecipe = $derived(recipes.find((r) => r.id === recipeId));
+	const selectedAvailability = $derived(
+		selectedRecipe
+			? computeRecipeAvailability(selectedRecipe, ingredientCatalog.items, otherCatalog.items)
+			: null
+	);
+	const isOverStock = $derived(
+		selectedAvailability &&
+			selectedAvailability.status !== 'unconfigured' &&
+			quantity > selectedAvailability.servingsAvailable
+	);
 
 	$effect(() => {
-		if (!recipeId && recipes.length) recipeId = recipes[0]!.id;
+		if (!recipeId && activeRecipes.length) recipeId = activeRecipes[0]!.id;
 		if (selectedRecipe && sellingPrice <= 0) sellingPrice = selectedRecipe.pricing.local;
 	});
 
@@ -71,12 +84,26 @@
 		<p class="mt-1 text-xs text-zinc-500">FIFO stock deduction runs automatically per recipe ingredients.</p>
 		<div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<div class="sm:col-span-2">
-				<label class="text-xs font-semibold uppercase text-zinc-500" for="biz-recipe">Product</label>
+				<div class="flex items-center justify-between">
+					<label class="text-xs font-semibold uppercase text-zinc-500" for="biz-recipe">Product</label>
+					{#if selectedAvailability}
+						<RecipeAvailabilityBadge availability={selectedAvailability} size="sm" showBottleneck={true} />
+					{/if}
+				</div>
 				<select id="biz-recipe" bind:value={recipeId} class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm">
-					{#each recipes as r (r.id)}
-						<option value={r.id}>{r.name}</option>
+					{#each activeRecipes as r (r.id)}
+						{@const a = computeRecipeAvailability(r, ingredientCatalog.items, otherCatalog.items)}
+						<option value={r.id}>
+							{r.name} — {a.status === 'out_of_stock' ? '🔴 Out of stock' : a.status === 'low_stock' ? `🟡 Low stock (${a.servingsAvailable} left)` : `🟢 ${a.servingsAvailable} available`}
+						</option>
 					{/each}
 				</select>
+				{#if isOverStock}
+					<p class="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg p-2 border border-amber-200">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+						<span>Selling <strong>{quantity} units</strong> exceeds ready inventory ({selectedAvailability?.servingsAvailable} servings available).</span>
+					</p>
+				{/if}
 			</div>
 			<div>
 				<label class="text-xs font-semibold uppercase text-zinc-500" for="biz-qty">Qty</label>
