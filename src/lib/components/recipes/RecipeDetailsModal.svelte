@@ -5,7 +5,6 @@
 	import AddIngredientMasterModal from '$lib/components/recipes/AddIngredientMasterModal.svelte';
 	import AddOtherMasterModal from '$lib/components/recipes/AddOtherMasterModal.svelte';
 	import TypeToConfirmDeleteModal from '$lib/components/TypeToConfirmDeleteModal.svelte';
-	import { costingSettings } from '$lib/state/costingSettings.svelte';
 	import {
 		addRecipeIngredientLine,
 		addRecipeOtherLine,
@@ -18,9 +17,16 @@
 		updateRecipeName,
 		updateRecipeOtherLine
 	} from '$lib/state/recipes.svelte';
-	import { convertQuantity } from '$lib/utils/unitConvert';
+	import { convertQuantity, unitLabel } from '$lib/utils/unitConvert';
 	import { recipeIngredientSubtotal, recipeOtherSubtotal } from '$lib/utils/recipeCosting';
-	import { batchesForProductName, defaultBatchForProduct, isBatchOutOfStock, productNameKey, recipeBatchOptionLabel, uniqueProductNames } from '$lib/utils/catalogBatch';
+	import {
+		batchesForProductName,
+		defaultBatchForProduct,
+		isBatchOutOfStock,
+		productNameKey,
+		recipeBatchOptionLabel,
+		uniqueProductNames
+	} from '$lib/utils/catalogBatch';
 	import { formatPhp } from '$lib/utils/numberFormat';
 	import RecipeAvailabilityBadge from '$lib/components/recipes/RecipeAvailabilityBadge.svelte';
 	import RecipeAvailabilityCard from '$lib/components/recipes/RecipeAvailabilityCard.svelte';
@@ -43,13 +49,16 @@
 	let backdrop: HTMLDivElement | undefined = $state();
 
 	let draftName = $state('');
-	/** Single add form: switch type with segmented control */
+	/** Segmented toggle for line category: ingredient or packaging/other */
 	let addMode = $state<'ingredient' | 'other'>('ingredient');
-	let addIngredientMasterId = $state('');
+	/** Filter tab inside recipe list: all, ingredient, other */
+	let lineFilterTab = $state<'all' | 'ingredient' | 'other'>('all');
+
 	let addIngredientProductName = $state('');
-	let addOtherMasterId = $state('');
+	let addIngredientMasterId = $state('');
 	let addOtherProductName = $state('');
-	let addQty = $state(1);
+	let addOtherMasterId = $state('');
+	let addQty = $state<number>(1);
 	let addUnit = $state<MeasureUnit>('g');
 
 	let quickAddIngredientOpen = $state(false);
@@ -57,17 +66,14 @@
 
 	let openedRecipeId = $state<string | null>(null);
 
-	let pendingLineRemove = $state<
-		| { kind: 'ingredient'; lineId: string; label: string }
-		| { kind: 'other'; lineId: string; label: string }
-		| null
-	>(null);
+	let pendingLineRemove = $state<{
+		kind: 'ingredient' | 'other';
+		lineId: string;
+		label: string;
+	} | null>(null);
 
-	/** Shown only after user taps Add with a unit that doesn’t convert to the catalog base. */
 	let addConversionReportShown = $state(false);
-	let costingPathHelpOpen = $state(false);
-	/** Taller / wider modal so more recipe lines fit on screen without scrolling. */
-	let linesListExpanded = $state(false);
+	let showCostingHelp = $state(false);
 
 	type CombinedRow =
 		| { kind: 'ingredient'; line: RecipeDTO['ingredientLines'][number] }
@@ -75,6 +81,7 @@
 
 	const masters = $derived(ingredientCatalog.items);
 	const otherMasters = $derived(otherCatalog.items);
+
 	const availability = $derived.by(() => {
 		if (!recipe) return null;
 		return computeRecipeAvailability(recipe, masters, otherMasters);
@@ -88,6 +95,16 @@
 		];
 	});
 
+	const displayedLines = $derived.by(() => {
+		if (lineFilterTab === 'ingredient') {
+			return combinedLines.filter((r) => r.kind === 'ingredient');
+		}
+		if (lineFilterTab === 'other') {
+			return combinedLines.filter((r) => r.kind === 'other');
+		}
+		return combinedLines;
+	});
+
 	const uniqueIngredientNames = $derived(uniqueProductNames(masters));
 	const uniqueOtherNames = $derived(uniqueProductNames(otherMasters));
 	const addIngredientBatches = $derived(batchesForProductName(masters, addIngredientProductName));
@@ -95,6 +112,7 @@
 
 	const ingSub = $derived(recipe ? recipeIngredientSubtotal(recipe, masters) : 0);
 	const othSub = $derived(recipe ? recipeOtherSubtotal(recipe, otherMasters) : 0);
+	const totalCogs = $derived(ingSub + othSub);
 
 	function askRemoveIngredient(lineId: string, label: string): void {
 		pendingLineRemove = { kind: 'ingredient', lineId, label };
@@ -143,8 +161,9 @@
 		if (open && recipe && openedRecipeId !== recipe.id) {
 			openedRecipeId = recipe.id;
 			addMode = 'ingredient';
+			lineFilterTab = 'all';
 			addConversionReportShown = false;
-			linesListExpanded = false;
+			showCostingHelp = false;
 		}
 		if (!open) openedRecipeId = null;
 	});
@@ -158,13 +177,8 @@
 			quickAddIngredientOpen = false;
 			quickAddOtherOpen = false;
 			addConversionReportShown = false;
-			costingPathHelpOpen = false;
-			linesListExpanded = false;
+			showCostingHelp = false;
 		}
-	});
-
-	$effect(() => {
-		if (addPreview?.qtyOk) addConversionReportShown = false;
 	});
 
 	$effect(() => {
@@ -187,7 +201,13 @@
 		const batches = batchesForProductName(masters, name);
 		if (!batches.some((b) => b.id === addIngredientMasterId)) {
 			const batch = defaultBatchForProduct(masters, name);
-			if (batch) addIngredientMasterId = batch.id;
+			if (batch) {
+				addIngredientMasterId = batch.id;
+				// Auto-pick sensible default unit from the ingredient's base unit
+				if (batch.baseUnit && addMode === 'ingredient') {
+					addUnit = batch.baseUnit as MeasureUnit;
+				}
+			}
 		}
 	});
 
@@ -211,7 +231,12 @@
 		const batches = batchesForProductName(otherMasters, name);
 		if (!batches.some((b) => b.id === addOtherMasterId)) {
 			const batch = defaultBatchForProduct(otherMasters, name);
-			if (batch) addOtherMasterId = batch.id;
+			if (batch) {
+				addOtherMasterId = batch.id;
+				if (batch.baseUnit && addMode === 'other') {
+					addUnit = batch.baseUnit as MeasureUnit;
+				}
+			}
 		}
 	});
 
@@ -219,12 +244,28 @@
 		addIngredientProductName = name;
 		const batch = defaultBatchForProduct(masters, name);
 		addIngredientMasterId = batch?.id ?? '';
+		if (batch?.baseUnit) addUnit = batch.baseUnit as MeasureUnit;
 	}
 
 	function onAddOtherProductChange(name: string): void {
 		addOtherProductName = name;
 		const batch = defaultBatchForProduct(otherMasters, name);
 		addOtherMasterId = batch?.id ?? '';
+		if (batch?.baseUnit) addUnit = batch.baseUnit as MeasureUnit;
+	}
+
+	function onSwitchAddMode(mode: 'ingredient' | 'other'): void {
+		addMode = mode;
+		addConversionReportShown = false;
+		if (mode === 'ingredient') {
+			const m = masters.find((x) => x.id === addIngredientMasterId);
+			if (m?.baseUnit) addUnit = m.baseUnit as MeasureUnit;
+			else addUnit = 'g';
+		} else {
+			const om = otherMasters.find((x) => x.id === addOtherMasterId);
+			if (om?.baseUnit) addUnit = om.baseUnit as MeasureUnit;
+			else addUnit = 'piece';
+		}
 	}
 
 	function fmt(n: number): string {
@@ -264,14 +305,6 @@
 
 	function onKeydown(e: KeyboardEvent): void {
 		if (e.key === 'Escape') {
-			if (costingPathHelpOpen) {
-				costingPathHelpOpen = false;
-				return;
-			}
-			if (linesListExpanded) {
-				linesListExpanded = false;
-				return;
-			}
 			if (quickAddIngredientOpen || quickAddOtherOpen) return;
 			onClose();
 		}
@@ -297,6 +330,7 @@
 			if (!otherMasters.length || !addOtherMasterId) return;
 			addRecipeOtherLine(recipe.id, addOtherMasterId, addQty, addUnit);
 		}
+		// Reset quantity to 1 for quick subsequent adds
 		addQty = 1;
 	}
 
@@ -343,7 +377,6 @@
 		const lineCost = qtyOk && q !== null ? q * m.unitCost : null;
 		return { kind: 'other', name: m.name, baseUnit: m.baseUnit, unitCost: m.unitCost, lineCost, qtyOk };
 	});
-
 </script>
 
 <svelte:window onkeydown={open ? onKeydown : undefined} />
@@ -352,410 +385,321 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		bind:this={backdrop}
-		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/55 backdrop-blur-sm sm:items-center {linesListExpanded
-			? 'p-2 sm:p-3'
-			: 'p-3 sm:p-4'}"
+		class="fixed inset-0 z-50 flex items-end justify-center bg-zinc-950/60 p-0 backdrop-blur-sm transition-all sm:items-center sm:p-4 md:p-6"
 		onmousedown={onBackdropMouseDown}
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby={linesListExpanded ? 'recipe-lines-slim-title' : 'recipe-name-field'}
+		aria-labelledby="recipe-name-field"
 		tabindex="-1"
 	>
+		<!-- Main Modal Card: Responsive full-screen bottom-sheet on phone, centered modal on tablet/desktop -->
 		<div
-			class="flex w-full flex-col overflow-hidden rounded-3xl border border-zinc-700/80 bg-white shadow-2xl ring-1 ring-black/5 transition-[max-width,max-height,height] duration-200 ease-out {linesListExpanded
-				? 'h-[min(98dvh,60rem)] max-h-[99dvh] max-w-[min(96vw,72rem)] sm:h-[min(96vh,60rem)]'
-				: 'h-[min(92dvh,52rem)] max-h-[94vh] max-w-3xl sm:h-[min(90vh,52rem)]'}"
+			class="flex max-h-[96dvh] w-full flex-col overflow-hidden rounded-t-[2rem] border border-zinc-200/80 bg-white shadow-2xl ring-1 ring-black/10 transition-all sm:max-h-[92vh] sm:max-w-3xl sm:rounded-3xl lg:max-w-4xl"
 		>
-			{#if linesListExpanded}
-				<div
-					class="flex shrink-0 items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-900 px-3 py-2.5 text-white sm:px-4"
-				>
-					<p id="recipe-lines-slim-title" class="min-w-0 truncate text-sm font-semibold tracking-tight">
-						{draftName.trim() || recipe.name}
-					</p>
-					<div class="flex shrink-0 items-center gap-1.5">
-						<button
-							type="button"
-							class="flex h-9 w-9 items-center justify-center rounded-lg border border-white/15 bg-white/10 text-white transition hover:bg-white/20"
-							aria-label="Compact layout — show add ingredients bar"
-							title="Compact layout"
-							onclick={() => (linesListExpanded = false)}
-						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								aria-hidden="true"
-							>
-								<path d="M4 14v2a2 2 0 0 0 2 2h2" />
-								<path d="M4 10V8a2 2 0 0 1 2-2h2" />
-								<path d="M20 14v2a2 2 0 0 1-2 2h-2" />
-								<path d="M20 10V8a2 2 0 0 0-2-2h-2" />
-								<path d="M9 9h6v6H9z" />
-							</svg>
-						</button>
-						<button
-							type="button"
-							class="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-lg leading-none text-zinc-300 transition hover:bg-white/10 hover:text-white"
-							onclick={onClose}
-							aria-label="Close"
-						>
-							×
-						</button>
-					</div>
-				</div>
-			{:else}
-			<!-- Recipe Manager–style header -->
-			<div
-				class="relative shrink-0 overflow-hidden bg-zinc-900 px-4 py-5 text-white sm:px-6 sm:py-6"
-			>
-				<div
-					class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl"
-				></div>
-				<div
-					class="pointer-events-none absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-amber-500/10 blur-2xl"
-				></div>
-				<div class="relative flex flex-wrap items-start justify-between gap-3">
+			<!-- Modern Gradient Header -->
+			<div class="relative shrink-0 overflow-hidden bg-zinc-900 px-4 py-4 text-white sm:px-6 sm:py-5">
+				<div class="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-orange-500/25 blur-3xl"></div>
+				<div class="pointer-events-none absolute -bottom-12 -left-12 h-40 w-40 rounded-full bg-amber-500/15 blur-2xl"></div>
+
+				<div class="relative flex items-center justify-between gap-3">
 					<div class="min-w-0 flex-1">
-						<div class="flex flex-wrap items-center gap-2">
-							<div
-								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500 text-white shadow-lg shadow-orange-900/30"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									width="20"
-									height="20"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									aria-hidden="true"
-								>
+						<div class="flex items-center gap-2.5">
+							<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-950/40">
+								<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
 									<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
 									<path d="M7 2v20" />
 									<path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
 								</svg>
 							</div>
-							<div class="min-w-0">
-								<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Recipe details</p>
-								<label for="recipe-name-field" class="sr-only">Recipe name</label>
-								<input
-									id="recipe-name-field"
-									bind:value={draftName}
-									onchange={persistName}
-									class="mt-0.5 w-full max-w-md border-b border-transparent bg-transparent text-xl font-bold tracking-tight text-white outline-none placeholder-zinc-600 focus:border-orange-400"
-								/>
+							<div class="min-w-0 flex-1">
+								<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-400">Recipe Details</p>
+								<div class="relative flex items-center">
+									<input
+										id="recipe-name-field"
+										bind:value={draftName}
+										onchange={persistName}
+										placeholder="Recipe name"
+										class="w-full truncate border-b border-white/20 bg-transparent py-0.5 text-lg font-bold tracking-tight text-white outline-none transition-colors focus:border-orange-400 sm:text-2xl"
+									/>
+								</div>
 							</div>
 						</div>
-						<div class="mt-3 flex flex-wrap gap-2">
-							<span
-								class="inline-flex items-center rounded-lg bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10"
-							>
-								{recipe.ingredientLines.length} ingredients
+
+						<!-- Quick Badges & Availability -->
+						<div class="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+							<span class="inline-flex items-center rounded-lg bg-zinc-800/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10">
+								{recipe.ingredientLines.length} ingr
 							</span>
-							<span
-								class="inline-flex items-center rounded-lg bg-zinc-800/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10"
-							>
+							<span class="inline-flex items-center rounded-lg bg-zinc-800/90 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-300 ring-1 ring-white/10">
 								{recipe.otherLines.length} others
 							</span>
-							<span class="text-xs tabular-nums text-zinc-500">
-								Lines total: <span class="font-semibold text-zinc-300">{combinedLines.length}</span>
-							</span>
 							{#if availability}
-								<div class="inline-flex items-center">
-									<RecipeAvailabilityBadge {availability} size="sm" showBottleneck={false} />
-								</div>
+								<RecipeAvailabilityBadge {availability} size="sm" showBottleneck={false} />
 							{/if}
 						</div>
 					</div>
+
+					<!-- Close Button -->
 					<button
 						type="button"
-						class="rounded-xl border border-white/10 bg-white/5 p-2 text-zinc-400 transition hover:bg-white/10 hover:text-white"
+						class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/15 hover:text-white active:scale-95"
 						onclick={onClose}
 						aria-label="Close"
 					>
-						<span class="text-xl leading-none">×</span>
+						<span class="text-2xl leading-none">&times;</span>
 					</button>
 				</div>
 			</div>
-			{/if}
 
-			<!-- Scroll: recipe lines + COGS -->
-			<div
-				class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto overflow-x-auto bg-zinc-50/80 p-4 sm:p-5"
-			>
-				<div class="mx-auto max-w-4xl">
-					{#if recipe.archived}
-						<div class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/95 p-3.5 text-amber-950 shadow-sm sm:p-4">
-							<div class="flex items-center gap-2.5">
-								<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200/80 text-amber-800">
-									<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
-								</div>
-								<div>
-									<p class="text-xs font-bold uppercase tracking-wider text-amber-900">Archived Recipe</p>
-									<p class="text-xs text-amber-800/90">This recipe is currently archived and hidden from active menu calculations.</p>
-								</div>
+			<!-- Scrollable Middle Body -->
+			<div class="recipe-details-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-zinc-50/70 p-4 sm:p-6 space-y-5">
+				<!-- Archived Banner if applicable -->
+				{#if recipe.archived}
+					<div class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/95 p-3.5 text-amber-950 shadow-xs sm:p-4">
+						<div class="flex items-center gap-2.5">
+							<div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-800">
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
 							</div>
+							<div>
+								<p class="text-xs font-bold uppercase tracking-wider text-amber-900">Archived Recipe</p>
+								<p class="text-xs text-amber-800/90">This recipe is hidden from active menu calculations.</p>
+							</div>
+						</div>
+						<button
+							type="button"
+							class="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-amber-700 active:scale-95"
+							onclick={executeRecipeRestore}
+						>
+							Restore
+						</button>
+					</div>
+				{/if}
+
+				<!-- Real-time Availability Card -->
+				{#if availability}
+					<RecipeAvailabilityCard {availability} />
+				{/if}
+
+				<!-- Recipe Lines Header with Filter Tabs -->
+				<div class="space-y-3">
+					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/80 pb-2">
+						<div class="flex items-center gap-2">
+							<h3 class="text-sm font-bold uppercase tracking-wider text-zinc-800 sm:text-base">Recipe Items</h3>
+							<span class="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-bold tabular-nums text-zinc-700">
+								{combinedLines.length}
+							</span>
+						</div>
+
+						<!-- Filter Tabs: All, Ingredients, Packaging -->
+						<div class="flex rounded-xl bg-zinc-200/80 p-0.5 text-xs font-semibold">
 							<button
 								type="button"
-								class="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-700 active:scale-95"
-								onclick={executeRecipeRestore}
+								class="rounded-lg px-2.5 py-1 transition {lineFilterTab === 'all' ? 'bg-white text-zinc-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'}"
+								onclick={() => (lineFilterTab = 'all')}
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-								Restore to Active
+								All ({combinedLines.length})
 							</button>
-						</div>
-					{/if}
-
-					{#if availability}
-						<div class="mb-4">
-							<RecipeAvailabilityCard {availability} />
-						</div>
-					{/if}
-
-					<div class="mb-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-						<span class="min-w-0" aria-hidden="true"></span>
-						<p class="text-center text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-							Recipe lines
-						</p>
-						<div class="flex justify-end">
 							<button
 								type="button"
-								class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200/90 bg-white text-zinc-600 shadow-sm ring-1 ring-zinc-100 transition hover:border-orange-300 hover:bg-orange-50/80 hover:text-orange-800"
-								aria-pressed={linesListExpanded}
-								aria-label={linesListExpanded ? 'Use compact recipe list layout' : 'Expand recipe list (semi full screen)'}
-								title={linesListExpanded ? 'Compact layout' : 'Larger list'}
-								onclick={() => (linesListExpanded = !linesListExpanded)}
+								class="rounded-lg px-2.5 py-1 transition {lineFilterTab === 'ingredient' ? 'bg-white text-emerald-800 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'}"
+								onclick={() => (lineFilterTab = 'ingredient')}
 							>
-								{#if linesListExpanded}
-									<!-- compress / exit expanded -->
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										aria-hidden="true"
-									>
-										<path d="M4 14v2a2 2 0 0 0 2 2h2" />
-										<path d="M4 10V8a2 2 0 0 1 2-2h2" />
-										<path d="M20 14v2a2 2 0 0 1-2 2h-2" />
-										<path d="M20 10V8a2 2 0 0 0-2-2h-2" />
-										<path d="M9 9h6v6H9z" />
-									</svg>
-								{:else}
-									<!-- expand outward -->
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										width="16"
-										height="16"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										aria-hidden="true"
-									>
-										<path d="M15 3h6v6" />
-										<path d="M9 21H3v-6" />
-										<path d="m21 3-7 7" />
-										<path d="m3 21 7-7" />
-									</svg>
-								{/if}
+								Ingredients ({recipe.ingredientLines.length})
+							</button>
+							<button
+								type="button"
+								class="rounded-lg px-2.5 py-1 transition {lineFilterTab === 'other' ? 'bg-white text-sky-900 shadow-xs' : 'text-zinc-600 hover:text-zinc-900'}"
+								onclick={() => (lineFilterTab = 'other')}
+							>
+								Packaging ({recipe.otherLines.length})
 							</button>
 						</div>
 					</div>
-					{#if !linesListExpanded}
-					<p class="mb-3 text-center text-xs leading-relaxed text-zinc-500">
-						Each row is either an <strong class="text-zinc-700">ingredient</strong> or an
-						<strong class="text-zinc-700">other</strong> (cups, lids, etc.). Pick the catalog item, qty, and unit.
-					</p>
-					{/if}
 
-					<div class="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
-						<table class="w-full min-w-[36rem] text-left text-sm sm:min-w-0">
-							<thead class="bg-zinc-100 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+					<!-- DESKTOP & TABLET: Clean Modern Table (sm:block) -->
+					<div class="hidden overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xs sm:block">
+						<table class="w-full text-left text-sm">
+							<thead class="border-b border-zinc-100 bg-zinc-50/80 text-[11px] font-bold uppercase tracking-wider text-zinc-500">
 								<tr>
-									<th class="px-3 py-2.5 font-medium">Type</th>
-									<th class="px-3 py-2.5 font-medium">Item</th>
-									<th class="px-3 py-2.5 font-medium">Qty</th>
-									<th class="hidden px-3 py-2.5 font-medium text-right sm:table-cell">₱/u</th>
-									<th class="px-3 py-2.5 font-medium text-right">Line</th>
-									<th class="w-10 px-2 py-2.5"></th>
+									<th class="px-4 py-3">Item & Sourcing</th>
+									<th class="px-4 py-3">Type</th>
+									<th class="px-4 py-3">Qty & Unit</th>
+									<th class="px-4 py-3 text-right">Cost / Unit</th>
+									<th class="px-4 py-3 text-right">Line Total</th>
+									<th class="w-12 px-3 py-3 text-center"></th>
 								</tr>
 							</thead>
 							<tbody class="divide-y divide-zinc-100">
-								{#each combinedLines as row (row.kind + row.line.id)}
+								{#each displayedLines as row (row.kind + row.line.id)}
 									{#if row.kind === 'ingredient'}
 										{@const line = row.line}
 										{@const m = masters.find((x) => x.id === line.ingredientMasterId)}
-										<tr class="bg-white">
-											<td class="px-3 py-2.5 align-top">
-												<span
-													class="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800 ring-1 ring-emerald-200/80"
-												>
-													Ingr.
+										<tr class="transition hover:bg-zinc-50/60">
+											<td class="px-4 py-3 align-middle">
+												<div class="min-w-0">
+													<p class="font-bold text-zinc-900">{m?.name ?? 'Missing Ingredient'}</p>
+													<div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+														{#if m?.supplier}
+															<span>{m.supplier}</span>
+															<span>·</span>
+														{/if}
+														<span class="rounded bg-emerald-50 px-1.5 py-0.2 text-[10px] font-semibold text-emerald-800">
+															{m ? formatPhp(m.packagePrice) : '—'}
+														</span>
+														{#if m && isBatchOutOfStock(m)}
+															<span class="rounded bg-rose-50 px-1.5 py-0.2 text-[9px] font-bold uppercase text-rose-700">Out of stock</span>
+														{/if}
+													</div>
+													{#if ingredientBatchesForLine(m).length > 1}
+														<select
+															class="mt-1.5 block w-full max-w-xs rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-orange-400"
+															value={line.ingredientMasterId}
+															onchange={(e) =>
+																updateRecipeIngredientLine(recipe.id, line.id, {
+																	ingredientMasterId: (e.currentTarget as HTMLSelectElement).value
+																})}
+														>
+															{#each ingredientBatchesForLine(m) as cat (cat.id)}
+																<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.ingredientMasterId}>
+																	{recipeBatchOptionLabel(cat)}
+																</option>
+															{/each}
+														</select>
+													{/if}
+												</div>
+											</td>
+											<td class="px-4 py-3 align-middle">
+												<span class="inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-800">
+													Ingr
 												</span>
 											</td>
-											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
-												{#if m}
-													<span class="font-medium break-words text-zinc-900">{m.name}</span>
-													<span class="mt-0.5 inline-flex flex-wrap items-center gap-1">
-														<span class="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">{formatPhp(m.packagePrice)}</span>
-														<span class="text-[10px] text-zinc-500">{m.supplier}</span>
-														{#if isBatchOutOfStock(m)}
-															<span class="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700">Out of stock</span>
-														{/if}
-													</span>
-												{:else}
-													<span class="text-amber-700">Missing item</span>
-												{/if}
-												<select
-													class="mt-1.5 block w-full min-w-0 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
-													value={line.ingredientMasterId}
-													onchange={(e) =>
-														updateRecipeIngredientLine(recipe.id, line.id, {
-															ingredientMasterId: (e.currentTarget as HTMLSelectElement).value
-														})}
-												>
-													{#each ingredientBatchesForLine(m) as cat (cat.id)}
-														<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.ingredientMasterId}>
-															{recipeBatchOptionLabel(cat)}
-														</option>
-													{/each}
-												</select>
+											<td class="px-4 py-3 align-middle">
+												<div class="flex items-center gap-1.5">
+													<input
+														type="number"
+														min="0"
+														step="any"
+														class="w-16 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs font-semibold tabular-nums text-zinc-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+														value={line.quantity}
+														onchange={(e) =>
+															updateRecipeIngredientLine(recipe.id, line.id, {
+																quantity: +((e.currentTarget as HTMLInputElement).value || 0)
+															})}
+													/>
+													<select
+														class="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 outline-none focus:border-orange-400"
+														value={line.unit}
+														onchange={(e) =>
+															updateRecipeIngredientLine(recipe.id, line.id, {
+																unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
+															})}
+													>
+														{#each MEASURE_UNIT_OPTIONS as u}
+															<option value={u.value}>{u.label}</option>
+														{/each}
+													</select>
+												</div>
 											</td>
-											<td class="px-3 py-2.5 align-top">
-												<input
-													type="number"
-													min="0"
-													step="any"
-													class="mb-1 w-full min-w-[3.5rem] max-w-[5rem] rounded-lg border border-zinc-200 px-1.5 py-1 text-xs"
-													value={line.quantity}
-													onchange={(e) =>
-														updateRecipeIngredientLine(recipe.id, line.id, {
-															quantity: +((e.currentTarget as HTMLInputElement).value || 0)
-														})}
-												/>
-												<select
-													class="block w-full min-w-0 max-w-[6.5rem] rounded-lg border border-zinc-200 px-1 py-1 text-[10px]"
-													value={line.unit}
-													onchange={(e) =>
-														updateRecipeIngredientLine(recipe.id, line.id, {
-															unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
-														})}
-												>
-													{#each MEASURE_UNIT_OPTIONS as u}
-														<option value={u.value}>{u.label}</option>
-													{/each}
-												</select>
-											</td>
-											<td class="hidden px-3 py-2.5 text-right align-top tabular-nums text-zinc-600 sm:table-cell">
+											<td class="px-4 py-3 text-right align-middle text-xs tabular-nums text-zinc-600">
 												{m ? fmt(m.unitCost) : '—'}
 											</td>
-											<td class="px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold text-zinc-900">
+											<td class="px-4 py-3 text-right align-middle text-sm font-bold tabular-nums text-zinc-900">
 												{fmt(ingLineCost(line))}
 											</td>
-											<td class="px-2 py-2.5 align-top">
+											<td class="px-3 py-3 text-center align-middle">
 												<button
 													type="button"
-													class="text-[11px] font-medium text-red-600 hover:underline"
-													onclick={() => askRemoveIngredient(line.id, m?.name ?? 'Line')}
+													class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600 active:scale-95"
+													title="Remove ingredient"
+													onclick={() => askRemoveIngredient(line.id, m?.name ?? 'Ingredient')}
 												>
-													×
+													<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
 												</button>
 											</td>
 										</tr>
 									{:else}
 										{@const line = row.line}
 										{@const om = otherMasters.find((x) => x.id === line.otherMasterId)}
-										<tr class="bg-white">
-											<td class="px-3 py-2.5 align-top">
-												<span
-													class="inline-flex rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-900 ring-1 ring-sky-200/80"
-												>
+										<tr class="transition hover:bg-zinc-50/60">
+											<td class="px-4 py-3 align-middle">
+												<div class="min-w-0">
+													<p class="font-bold text-zinc-900">{om?.name ?? 'Missing Item'}</p>
+													<div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+														{#if om?.supplier}
+															<span>{om.supplier}</span>
+															<span>·</span>
+														{/if}
+														<span class="rounded bg-sky-50 px-1.5 py-0.2 text-[10px] font-semibold text-sky-800">
+															{om ? formatPhp(om.packagePrice) : '—'}
+														</span>
+														{#if om && isBatchOutOfStock(om)}
+															<span class="rounded bg-rose-50 px-1.5 py-0.2 text-[9px] font-bold uppercase text-rose-700">Out of stock</span>
+														{/if}
+													</div>
+													{#if otherBatchesForLine(om).length > 1}
+														<select
+															class="mt-1.5 block w-full max-w-xs rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 outline-none focus:border-orange-400"
+															value={line.otherMasterId}
+															onchange={(e) =>
+																updateRecipeOtherLine(recipe.id, line.id, {
+																	otherMasterId: (e.currentTarget as HTMLSelectElement).value
+																})}
+														>
+															{#each otherBatchesForLine(om) as cat (cat.id)}
+																<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.otherMasterId}>
+																	{recipeBatchOptionLabel(cat)}
+																</option>
+															{/each}
+														</select>
+													{/if}
+												</div>
+											</td>
+											<td class="px-4 py-3 align-middle">
+												<span class="inline-flex rounded-md bg-sky-100 px-2 py-0.5 text-[10px] font-bold uppercase text-sky-800">
 													Other
 												</span>
 											</td>
-											<td class="min-w-[10rem] max-w-[min(100vw,22rem)] px-3 py-2.5 align-top sm:min-w-[12rem] sm:max-w-none">
-												{#if om}
-													<span class="font-medium break-words text-zinc-900">{om.name}</span>
-													<span class="mt-0.5 inline-flex flex-wrap items-center gap-1">
-														<span class="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-800">{formatPhp(om.packagePrice)}</span>
-														<span class="text-[10px] text-zinc-500">{om.supplier}</span>
-														{#if isBatchOutOfStock(om)}
-															<span class="rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold uppercase text-red-700">Out of stock</span>
-														{/if}
-													</span>
-												{:else}
-													<span class="text-amber-700">Missing item</span>
-												{/if}
-												<select
-													class="mt-1.5 block w-full min-w-0 rounded-lg border border-zinc-200 px-2 py-1 text-xs"
-													value={line.otherMasterId}
-													onchange={(e) =>
-														updateRecipeOtherLine(recipe.id, line.id, {
-															otherMasterId: (e.currentTarget as HTMLSelectElement).value
-														})}
-												>
-													{#each otherBatchesForLine(om) as cat (cat.id)}
-														<option value={cat.id} disabled={isBatchOutOfStock(cat) && cat.id !== line.otherMasterId}>
-															{recipeBatchOptionLabel(cat)}
-														</option>
-													{/each}
-												</select>
+											<td class="px-4 py-3 align-middle">
+												<div class="flex items-center gap-1.5">
+													<input
+														type="number"
+														min="0"
+														step="any"
+														class="w-16 rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs font-semibold tabular-nums text-zinc-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+														value={line.quantity}
+														onchange={(e) =>
+															updateRecipeOtherLine(recipe.id, line.id, {
+																quantity: +((e.currentTarget as HTMLInputElement).value || 0)
+															})}
+													/>
+													<select
+														class="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 outline-none focus:border-orange-400"
+														value={line.unit}
+														onchange={(e) =>
+															updateRecipeOtherLine(recipe.id, line.id, {
+																unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
+															})}
+													>
+														{#each MEASURE_UNIT_OPTIONS as u}
+															<option value={u.value}>{u.label}</option>
+														{/each}
+													</select>
+												</div>
 											</td>
-											<td class="px-3 py-2.5 align-top">
-												<input
-													type="number"
-													min="0"
-													step="any"
-													class="mb-1 w-full min-w-[3.5rem] max-w-[5rem] rounded-lg border border-zinc-200 px-1.5 py-1 text-xs"
-													value={line.quantity}
-													onchange={(e) =>
-														updateRecipeOtherLine(recipe.id, line.id, {
-															quantity: +((e.currentTarget as HTMLInputElement).value || 0)
-														})}
-												/>
-												<select
-													class="block w-full min-w-0 max-w-[6.5rem] rounded-lg border border-zinc-200 px-1 py-1 text-[10px]"
-													value={line.unit}
-													onchange={(e) =>
-														updateRecipeOtherLine(recipe.id, line.id, {
-															unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
-														})}
-												>
-													{#each MEASURE_UNIT_OPTIONS as u}
-														<option value={u.value}>{u.label}</option>
-													{/each}
-												</select>
-											</td>
-											<td class="hidden px-3 py-2.5 text-right align-top tabular-nums text-zinc-600 sm:table-cell">
+											<td class="px-4 py-3 text-right align-middle text-xs tabular-nums text-zinc-600">
 												{om ? fmt(om.unitCost) : '—'}
 											</td>
-											<td class="px-3 py-2.5 text-right align-top tabular-nums text-sm font-semibold text-zinc-900">
+											<td class="px-4 py-3 text-right align-middle text-sm font-bold tabular-nums text-zinc-900">
 												{fmt(otherLineCost(line))}
 											</td>
-											<td class="px-2 py-2.5 align-top">
+											<td class="px-3 py-3 text-center align-middle">
 												<button
 													type="button"
-													class="text-[11px] font-medium text-red-600 hover:underline"
-													onclick={() => askRemoveOther(line.id, om?.name ?? 'Line')}
+													class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600 active:scale-95"
+													title="Remove packaging line"
+													onclick={() => askRemoveOther(line.id, om?.name ?? 'Packaging')}
 												>
-													×
+													<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
 												</button>
 											</td>
 										</tr>
@@ -763,301 +707,336 @@
 								{/each}
 							</tbody>
 						</table>
-						{#if combinedLines.length === 0}
-							<p class="border-t border-zinc-100 bg-zinc-50/60 px-4 py-8 text-center text-sm text-zinc-500">
-								{#if linesListExpanded}
-									No lines yet. Tap <strong class="text-zinc-800">Compact layout</strong> (toolbar or
-									above) to show the add row and build this recipe.
-								{:else}
-									No lines yet. Use <strong class="text-zinc-800">Add ingredient</strong> or
-									<strong class="text-zinc-800">Add other</strong> below — add catalog items on the
-									<strong>Ingredients</strong> and <strong>Others</strong> pages first if lists are empty.
-								{/if}
-							</p>
-						{/if}
 					</div>
 
-					<div
-						class="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs shadow-sm sm:grid-cols-3"
-					>
-						<div>
-							<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Ingredients</p>
-							<p class="mt-0.5 font-bold tabular-nums text-zinc-900">{fmt(ingSub)}</p>
+					<!-- MOBILE (PHONE): Touch-Friendly Item Cards (block sm:hidden) -->
+					<div class="block space-y-3 sm:hidden">
+						{#each displayedLines as row (row.kind + row.line.id)}
+							{#if row.kind === 'ingredient'}
+								{@const line = row.line}
+								{@const m = masters.find((x) => x.id === line.ingredientMasterId)}
+								<div class="rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-2.5">
+									<div class="flex items-start justify-between gap-2">
+										<div class="min-w-0">
+											<div class="flex items-center gap-1.5">
+												<span class="rounded bg-emerald-100 px-1.5 py-0.2 text-[9px] font-bold uppercase text-emerald-800">Ingr</span>
+												<p class="font-bold text-zinc-900 truncate">{m?.name ?? 'Missing Ingredient'}</p>
+											</div>
+											{#if m?.supplier}
+												<p class="mt-0.5 text-xs text-zinc-500">{m.supplier}</p>
+											{/if}
+										</div>
+										<button
+											type="button"
+											class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600 active:scale-95"
+											onclick={() => askRemoveIngredient(line.id, m?.name ?? 'Ingredient')}
+											aria-label="Remove"
+										>
+											<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+										</button>
+									</div>
+
+									<div class="flex items-center justify-between gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
+										<div class="flex items-center gap-2">
+											<input
+												type="number"
+												min="0"
+												step="any"
+												class="w-16 rounded-lg border border-zinc-200 bg-white p-1.5 text-center font-bold tabular-nums text-zinc-900 outline-none focus:border-orange-400"
+												value={line.quantity}
+												onchange={(e) =>
+													updateRecipeIngredientLine(recipe.id, line.id, {
+														quantity: +((e.currentTarget as HTMLInputElement).value || 0)
+													})}
+											/>
+											<select
+												class="rounded-lg border border-zinc-200 bg-white p-1.5 font-medium text-zinc-700 outline-none focus:border-orange-400"
+												value={line.unit}
+												onchange={(e) =>
+													updateRecipeIngredientLine(recipe.id, line.id, {
+														unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
+													})}
+											>
+												{#each MEASURE_UNIT_OPTIONS as u}
+													<option value={u.value}>{u.label}</option>
+												{/each}
+											</select>
+										</div>
+
+										<div class="text-right">
+											<p class="text-[10px] uppercase font-bold text-zinc-400">Line Cost</p>
+											<p class="text-sm font-bold tabular-nums text-zinc-900">{fmt(ingLineCost(line))}</p>
+										</div>
+									</div>
+								</div>
+							{:else}
+								{@const line = row.line}
+								{@const om = otherMasters.find((x) => x.id === line.otherMasterId)}
+								<div class="rounded-2xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-2.5">
+									<div class="flex items-start justify-between gap-2">
+										<div class="min-w-0">
+											<div class="flex items-center gap-1.5">
+												<span class="rounded bg-sky-100 px-1.5 py-0.2 text-[9px] font-bold uppercase text-sky-800">Other</span>
+												<p class="font-bold text-zinc-900 truncate">{om?.name ?? 'Missing Item'}</p>
+											</div>
+											{#if om?.supplier}
+												<p class="mt-0.5 text-xs text-zinc-500">{om.supplier}</p>
+											{/if}
+										</div>
+										<button
+											type="button"
+											class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-zinc-400 transition hover:bg-rose-50 hover:text-rose-600 active:scale-95"
+											onclick={() => askRemoveOther(line.id, om?.name ?? 'Packaging')}
+											aria-label="Remove"
+										>
+											<svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+										</button>
+									</div>
+
+									<div class="flex items-center justify-between gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
+										<div class="flex items-center gap-2">
+											<input
+												type="number"
+												min="0"
+												step="any"
+												class="w-16 rounded-lg border border-zinc-200 bg-white p-1.5 text-center font-bold tabular-nums text-zinc-900 outline-none focus:border-orange-400"
+												value={line.quantity}
+												onchange={(e) =>
+													updateRecipeOtherLine(recipe.id, line.id, {
+														quantity: +((e.currentTarget as HTMLInputElement).value || 0)
+													})}
+											/>
+											<select
+												class="rounded-lg border border-zinc-200 bg-white p-1.5 font-medium text-zinc-700 outline-none focus:border-orange-400"
+												value={line.unit}
+												onchange={(e) =>
+													updateRecipeOtherLine(recipe.id, line.id, {
+														unit: (e.currentTarget as HTMLSelectElement).value as MeasureUnit
+													})}
+											>
+												{#each MEASURE_UNIT_OPTIONS as u}
+													<option value={u.value}>{u.label}</option>
+												{/each}
+											</select>
+										</div>
+
+										<div class="text-right">
+											<p class="text-[10px] uppercase font-bold text-zinc-400">Line Cost</p>
+											<p class="text-sm font-bold tabular-nums text-zinc-900">{fmt(otherLineCost(line))}</p>
+										</div>
+									</div>
+								</div>
+							{/if}
+						{/each}
+					</div>
+
+					<!-- Empty State -->
+					{#if displayedLines.length === 0}
+						<div class="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-zinc-200 bg-white/70 py-10 px-4 text-center">
+							<div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 text-orange-600">
+								<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+							</div>
+							<h4 class="mt-3 text-sm font-bold text-zinc-800">No items added to this recipe yet</h4>
+							<p class="mt-1 max-w-sm text-xs text-zinc-500">
+								Use the section below to add ingredients or packaging cups, lids, and straws to calculate this recipe's cost and availability.
+							</p>
 						</div>
-						<div>
-							<p class="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Others</p>
-							<p class="mt-0.5 font-bold tabular-nums text-zinc-900">{fmt(othSub)}</p>
+					{/if}
+
+					<!-- Cost Totals Summary Banner -->
+					<div class="grid grid-cols-2 gap-3 rounded-2xl border border-zinc-200 bg-white p-3.5 text-xs shadow-xs sm:grid-cols-3">
+						<div class="rounded-xl bg-zinc-50 p-2.5">
+							<p class="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Ingredients</p>
+							<p class="mt-0.5 text-base font-bold tabular-nums text-zinc-900">{fmt(ingSub)}</p>
 						</div>
-						<div class="col-span-2 border-t border-zinc-100 pt-2 sm:col-span-1 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
-							<p class="text-[10px] font-bold uppercase tracking-wider text-orange-600">COGS this recipe</p>
-							<p class="mt-0.5 text-lg font-bold tabular-nums text-zinc-900">{fmt(ingSub + othSub)}</p>
+						<div class="rounded-xl bg-zinc-50 p-2.5">
+							<p class="text-[10px] font-bold uppercase tracking-wider text-sky-700">Packaging / Other</p>
+							<p class="mt-0.5 text-base font-bold tabular-nums text-zinc-900">{fmt(othSub)}</p>
+						</div>
+						<div class="col-span-2 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 p-2.5 border border-orange-200/80 sm:col-span-1">
+							<p class="text-[10px] font-bold uppercase tracking-wider text-orange-700">Total Recipe COGS</p>
+							<p class="mt-0.5 text-xl font-bold tabular-nums text-orange-950">{fmt(totalCogs)}</p>
 						</div>
 					</div>
 				</div>
 			</div>
 
-			{#if !linesListExpanded}
-			<!-- Add bar: one row + costing clarity -->
-			<div
-				class="shrink-0 border-t border-zinc-200 bg-white px-4 py-3 shadow-[0_-10px_40px_rgba(0,0,0,0.06)] sm:px-6 sm:py-4"
-			>
-				<div class="mx-auto max-w-4xl space-y-2">
-					<div class="flex rounded-xl bg-zinc-100 p-1 ring-1 ring-zinc-200/80">
-						<button
-							type="button"
-							class="flex-1 rounded-lg py-2 text-xs font-bold uppercase tracking-wide transition sm:text-sm {addMode ===
-							'ingredient'
-								? 'bg-white text-emerald-800 shadow-sm ring-1 ring-zinc-200/80'
-								: 'text-zinc-500 hover:text-zinc-800'}"
-							onclick={() => {
-								addMode = 'ingredient';
-								addConversionReportShown = false;
-								costingPathHelpOpen = false;
-							}}
-						>
-							Add ingredient
-						</button>
-						<button
-							type="button"
-							class="flex-1 rounded-lg py-2 text-xs font-bold uppercase tracking-wide transition sm:text-sm {addMode ===
-							'other'
-								? 'bg-white text-sky-900 shadow-sm ring-1 ring-zinc-200/80'
-								: 'text-zinc-500 hover:text-zinc-800'}"
-							onclick={() => {
-								addMode = 'other';
-								addConversionReportShown = false;
-								costingPathHelpOpen = false;
-							}}
-						>
-							Add other
-						</button>
-					</div>
-
-					<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-						<div class="flex min-w-0 flex-1 flex-col gap-2">
-							<div class="flex flex-wrap items-center gap-1.5">
-								<span class="text-[11px] font-bold text-zinc-800">Costing path</span>
-								<button
-									type="button"
-									class="flex h-5 w-5 shrink-0 items-center justify-center rounded border border-zinc-300/90 bg-white text-[11px] font-bold leading-none text-zinc-600 shadow-sm ring-zinc-200/80 transition hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-900"
-									aria-expanded={costingPathHelpOpen}
-									aria-label="Help: how recipe line costing works"
-									onclick={() => (costingPathHelpOpen = !costingPathHelpOpen)}
-								>
-									?
-								</button>
-							</div>
-							{#if costingPathHelpOpen}
-								<!-- svelte-ignore a11y_click_events_have_key_events -->
-								<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-								<div
-									role="note"
-									class="max-w-xl rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2.5 text-left text-[11px] leading-relaxed text-zinc-600 shadow-lg ring-1 ring-zinc-200/60"
-									onmousedown={(e) => e.stopPropagation()}
-								>
-									<p>
-										You attach a <strong>catalog {addMode === 'ingredient' ? 'ingredient' : 'other'}</strong>
-										(price is already per g, ml, or piece from that item’s package). This recipe then uses
-										your <strong>quantity + unit</strong> here — we convert to the catalog’s base unit and
-										multiply by its <strong>₱/base</strong> to get this line’s cost.
-									</p>
-								</div>
-							{/if}
-						</div>
-						<button
-							type="button"
-							class="shrink-0 self-start rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition {addMode ===
-							'ingredient'
-								? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100'
-								: 'border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100'}"
-							onclick={() =>
-								addMode === 'ingredient' ? (quickAddIngredientOpen = true) : (quickAddOtherOpen = true)}
-						>
-							+ New {addMode === 'ingredient' ? 'ingredient' : 'other'}
-						</button>
-					</div>
-
-					<form class="space-y-2" onsubmit={submitAddLine}>
-						{#if addMode === 'ingredient' && !masters.length}
-							<p class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-200">
-								Catalog is empty — tap <strong>+ New ingredient</strong> (e.g. matcha), then pick it in the row
-								below.
-							</p>
-						{:else if addMode === 'other' && !otherMasters.length}
-							<p class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900 ring-1 ring-amber-200">
-								Catalog is empty — tap <strong>+ New other</strong>, then pick it below.
-							</p>
-						{/if}
-
-						<div
-							class="flex min-w-0 flex-nowrap items-stretch gap-2 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50/40 p-2 ring-1 ring-zinc-100"
-							aria-label="Add line: catalog, quantity, unit, add"
-						>
-							{#if addMode === 'ingredient'}
-								<label class="sr-only" for="add-ing-product">Product</label>
-								<select
-									id="add-ing-product"
-									value={addIngredientProductName}
-									disabled={uniqueIngredientNames.length === 0}
-									class="min-h-[44px] min-w-[min(100%,9rem)] shrink-0 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									onchange={(e) => onAddIngredientProductChange((e.currentTarget as HTMLSelectElement).value)}
-								>
-									{#each uniqueIngredientNames as name (name)}
-										<option value={name}>{name}</option>
-									{/each}
-								</select>
-								<label class="sr-only" for="add-ing-select">Batch</label>
-								<select
-									id="add-ing-select"
-									bind:value={addIngredientMasterId}
-									disabled={addIngredientBatches.length === 0}
-									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									title="Pick price batch for this product"
-								>
-									{#if addIngredientBatches.length === 0}
-										<option value="">— No batches —</option>
-									{:else}
-										{#each addIngredientBatches as cat (cat.id)}
-											<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
-												{recipeBatchOptionLabel(cat)}
-											</option>
-										{/each}
-									{/if}
-								</select>
-							{:else}
-								<label class="sr-only" for="add-oth-product">Product</label>
-								<select
-									id="add-oth-product"
-									value={addOtherProductName}
-									disabled={uniqueOtherNames.length === 0}
-									class="min-h-[44px] min-w-[min(100%,9rem)] shrink-0 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									onchange={(e) => onAddOtherProductChange((e.currentTarget as HTMLSelectElement).value)}
-								>
-									{#each uniqueOtherNames as name (name)}
-										<option value={name}>{name}</option>
-									{/each}
-								</select>
-								<label class="sr-only" for="add-oth-select">Batch</label>
-								<select
-									id="add-oth-select"
-									bind:value={addOtherMasterId}
-									disabled={addOtherBatches.length === 0}
-									class="min-h-[44px] min-w-[min(100%,11rem)] flex-1 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 disabled:opacity-50"
-									title="Pick price batch for this item"
-								>
-									{#if addOtherBatches.length === 0}
-										<option value="">— No batches —</option>
-									{:else}
-										{#each addOtherBatches as cat (cat.id)}
-											<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
-												{recipeBatchOptionLabel(cat)}
-											</option>
-										{/each}
-									{/if}
-								</select>
-							{/if}
-
-							<label class="sr-only" for="add-line-qty">Recipe quantity</label>
-							<input
-								id="add-line-qty"
-								type="number"
-								min="0"
-								step="any"
-								bind:value={addQty}
-								class="min-h-[44px] w-[4.5rem] shrink-0 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-center text-sm tabular-nums outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15"
-								title="How much this recipe uses"
-							/>
-
-							<label class="sr-only" for="add-line-unit">Unit for quantity</label>
-							<select
-								id="add-line-unit"
-								bind:value={addUnit}
-								class="min-h-[44px] w-[5.75rem] shrink-0 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-500/15 sm:w-[6.5rem]"
-							>
-								{#each MEASURE_UNIT_OPTIONS as u}
-									<option value={u.value}>{u.label}</option>
-								{/each}
-							</select>
-
+			<!-- User-Friendly Add Ingredient / Packaging Form (Responsive & Intuitive) -->
+			<div class="shrink-0 border-t border-zinc-200/90 bg-white px-4 py-3.5 shadow-lg sm:px-6 sm:py-4">
+				<form class="space-y-3" onsubmit={submitAddLine}>
+					<!-- Add Type Selector & Quick Create Link -->
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<!-- Segmented Pill -->
+						<div class="flex rounded-xl bg-zinc-100 p-1 ring-1 ring-zinc-200/80">
 							<button
-								type="submit"
-								disabled={!canSubmitAdd}
-								class="min-h-[44px] shrink-0 rounded-lg px-4 text-sm font-bold text-white shadow-md transition enabled:hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40 {addMode ===
-								'ingredient'
-									? 'bg-orange-600'
-									: 'bg-zinc-900'}"
+								type="button"
+								class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition {addMode === 'ingredient'
+									? 'bg-white text-emerald-800 shadow-xs ring-1 ring-zinc-200/80'
+									: 'text-zinc-600 hover:text-zinc-900'}"
+								onclick={() => onSwitchAddMode('ingredient')}
 							>
-								{addMode === 'ingredient' ? 'Add ingr' : 'Add other'}
+								<span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+								<span>Add Ingredient</span>
+							</button>
+							<button
+								type="button"
+								class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition {addMode === 'other'
+									? 'bg-white text-sky-900 shadow-xs ring-1 ring-zinc-200/80'
+									: 'text-zinc-600 hover:text-zinc-900'}"
+								onclick={() => onSwitchAddMode('other')}
+							>
+								<span class="h-2 w-2 rounded-full bg-sky-500"></span>
+								<span>Add Packaging</span>
 							</button>
 						</div>
 
-						{#if addPreview && addPreview.qtyOk && addPreview.lineCost !== null}
-							<div
-								class="w-full max-w-full rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2.5 text-left text-[11px] leading-relaxed text-zinc-600 shadow-lg ring-1 ring-zinc-200/60"
-								role="status"
-							>
-								<p>
-									<strong class="font-semibold text-zinc-800">{addPreview.name}</strong>
-									<span> · catalog base </span>
-									<span class="font-mono tabular-nums text-zinc-700">{addPreview.baseUnit}</span>
-									<span> at </span>
-									<span class="font-semibold tabular-nums text-zinc-800">{fmt(addPreview.unitCost)}</span>
-									<span> /{addPreview.baseUnit}</span>
-									<span> → </span>
-									<span class="font-semibold text-zinc-800">this line ≈ {fmt(addPreview.lineCost)}</span>
-								</p>
-							</div>
-						{:else if addConversionReportShown && addPreview && !addPreview.qtyOk}
-							<div
-								class="rounded-xl border border-amber-300/90 bg-amber-50/95 px-3 py-2.5 text-[11px] leading-snug text-amber-950 shadow-sm ring-1 ring-amber-200/60 sm:px-4"
-								role="alert"
-							>
-								<p class="text-[10px] font-bold uppercase tracking-wider text-amber-900">Report</p>
-								<p class="mt-1 font-medium">
-									<strong class="text-amber-950">{addPreview.name}</strong>
-									<span class="text-amber-900/90">
-										· catalog base {addPreview.baseUnit} at {fmt(addPreview.unitCost)} /{addPreview.baseUnit}
-										— your quantity/unit can’t convert to this catalog’s base. Try
-										<strong>g</strong>, <strong>ml</strong>, or <strong>piece</strong>, or pick another item.
-									</span>
-								</p>
-							</div>
-						{/if}
+						<!-- Create new in catalog button -->
+						<button
+							type="button"
+							class="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 shadow-2xs transition hover:bg-zinc-50 active:scale-95"
+							onclick={() => (addMode === 'ingredient' ? (quickAddIngredientOpen = true) : (quickAddOtherOpen = true))}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>
+							<span>New {addMode === 'ingredient' ? 'Ingredient' : 'Packaging'}</span>
+						</button>
+					</div>
 
-						<div class="flex items-center justify-between pt-1">
-							{#if recipe.archived}
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 underline-offset-2 transition hover:text-emerald-700 hover:underline"
-									onclick={executeRecipeRestore}
+					<!-- Form Inputs: Responsive Stack on Phone, Clean Inline/Grid on Tablet & Desktop -->
+					<div class="grid gap-2.5 sm:grid-cols-12 sm:items-center">
+						<!-- Product Name / Item Dropdown -->
+						<div class="sm:col-span-5">
+							<label class="sr-only" for="modal-add-product">Product Item</label>
+							{#if addMode === 'ingredient'}
+								<select
+									id="modal-add-product"
+									value={addIngredientProductName}
+									disabled={uniqueIngredientNames.length === 0}
+									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
+									onchange={(e) => onAddIngredientProductChange((e.currentTarget as HTMLSelectElement).value)}
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-									Restore to active
-								</button>
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 underline-offset-2 transition hover:text-red-700 hover:underline"
-									onclick={executeRecipeDeletePermanently}
-								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-									Completely delete recipe
-								</button>
+									{#if uniqueIngredientNames.length === 0}
+										<option value="">— No ingredients in catalog —</option>
+									{:else}
+										{#each uniqueIngredientNames as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+									{/if}
+								</select>
 							{:else}
-								<span></span>
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 underline-offset-2 transition hover:text-amber-800 hover:underline"
-									onclick={executeRecipeArchive}
+								<select
+									id="modal-add-product"
+									value={addOtherProductName}
+									disabled={uniqueOtherNames.length === 0}
+									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
+									onchange={(e) => onAddOtherProductChange((e.currentTarget as HTMLSelectElement).value)}
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>
-									Archive recipe
-								</button>
+									{#if uniqueOtherNames.length === 0}
+										<option value="">— No packaging items in catalog —</option>
+									{:else}
+										{#each uniqueOtherNames as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+									{/if}
+								</select>
 							{/if}
 						</div>
-					</form>
-				</div>
+
+						<!-- Quantity & Unit (Side-by-side on all screens) -->
+						<div class="flex items-center gap-2 sm:col-span-4">
+							<div class="relative flex-1">
+								<input
+									id="modal-add-qty"
+									type="number"
+									min="0"
+									step="any"
+									placeholder="Qty"
+									bind:value={addQty}
+									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-center text-sm font-bold tabular-nums text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
+								/>
+							</div>
+							<div class="flex-1">
+								<select
+									id="modal-add-unit"
+									bind:value={addUnit}
+									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
+								>
+									{#each MEASURE_UNIT_OPTIONS as u}
+										<option value={u.value}>{u.label}</option>
+									{/each}
+								</select>
+							</div>
+						</div>
+
+						<!-- Submit Button -->
+						<div class="sm:col-span-3">
+							<button
+								type="submit"
+								disabled={!canSubmitAdd}
+								class="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 {addMode ===
+								'ingredient'
+									? 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 shadow-orange-900/20'
+									: 'bg-gradient-to-r from-zinc-800 to-zinc-900 hover:from-zinc-700 hover:to-zinc-800 shadow-zinc-900/20'}"
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+								<span>Add {addMode === 'ingredient' ? 'Ingredient' : 'Packaging'}</span>
+							</button>
+						</div>
+					</div>
+
+					<!-- Secondary: Batch/Price tier selector (only shown when multiple price tiers exist) -->
+					{#if addMode === 'ingredient' && addIngredientBatches.length > 1}
+						<div class="flex items-center gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
+							<span class="font-bold text-zinc-500 shrink-0">Price Tier:</span>
+							<select
+								bind:value={addIngredientMasterId}
+								class="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800 outline-none"
+							>
+								{#each addIngredientBatches as cat (cat.id)}
+									<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
+										{recipeBatchOptionLabel(cat)}
+									</option>
+								{/each}
+							</select>
+						</div>
+					{:else if addMode === 'other' && addOtherBatches.length > 1}
+						<div class="flex items-center gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
+							<span class="font-bold text-zinc-500 shrink-0">Price Tier:</span>
+							<select
+								bind:value={addOtherMasterId}
+								class="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800 outline-none"
+							>
+								{#each addOtherBatches as cat (cat.id)}
+									<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
+										{recipeBatchOptionLabel(cat)}
+									</option>
+								{/each}
+							</select>
+						</div>
+					{/if}
+
+					<!-- Live Cost Preview & Helpful Conversion Notice -->
+					{#if addPreview && addPreview.qtyOk && addPreview.lineCost !== null}
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950">
+							<div class="flex items-center gap-1.5">
+								<span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+								<span>
+									<strong>{addPreview.name}</strong> · Base {addPreview.baseUnit} at <strong>{fmt(addPreview.unitCost)}/{addPreview.baseUnit}</strong>
+								</span>
+							</div>
+							<div class="font-bold text-emerald-800">
+								Line Cost: <span>{fmt(addPreview.lineCost)}</span>
+							</div>
+						</div>
+					{:else if addConversionReportShown && addPreview && !addPreview.qtyOk}
+						<div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+							<p class="font-bold">Unit mismatch:</p>
+							<p class="mt-0.5">
+								Cannot convert <strong>{unitLabel(addUnit)}</strong> to catalog base unit <strong>{addPreview.baseUnit}</strong>. Try choosing <strong>{addPreview.baseUnit}</strong> or compatible units.
+							</p>
+						</div>
+					{/if}
+				</form>
 			</div>
-			{/if}
 		</div>
 	</div>
 {/if}
