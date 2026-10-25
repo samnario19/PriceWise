@@ -16,9 +16,8 @@ function parseJsonSafe(raw: string): unknown {
 
 /**
  * Get the base URL for scrape requests.
- * Scraping uses Playwright (~55 s) so we bypass the Vercel serverless proxy
- * (10 s timeout) and hit the Render backend directly via PUBLIC_BACKEND_URL.
- * In local dev (no PUBLIC_BACKEND_URL) it falls back to the normal /api proxy.
+ * Hits the Render backend directly via PUBLIC_BACKEND_URL to avoid Vercel's
+ * 10-second serverless timeout.
  */
 function getScrapeBase(): string {
 	const direct = env.PUBLIC_BACKEND_URL?.trim().replace(/\/+$/, '');
@@ -28,14 +27,103 @@ function getScrapeBase(): string {
 	return API_BASE;
 }
 
+/** Parse Shopee shop_id and item_id from a product URL. */
+function parseShopeeIds(url: string): { shopId: string; itemId: string } | null {
+	try {
+		const u = new URL(url);
+		if (!u.hostname.includes('shopee.')) return null;
+		const path = u.pathname.replace(/\/$/, '');
+		// /product-name-i.SHOPID.ITEMID
+		let m = path.match(/-i\.(\d+)\.(\d+)$/) || path.match(/\.i\.(\d+)\.(\d+)$/);
+		if (m) return { shopId: m[1], itemId: m[2] };
+		// /product/SHOPID/ITEMID
+		m = path.match(/\/product\/(\d+)\/(\d+)/);
+		if (m) return { shopId: m[1], itemId: m[2] };
+	} catch {
+		// ignore
+	}
+	return null;
+}
+
 /**
- * Server-side Playwright capture (Chromium). Start the FastAPI backend and run
- * `playwright install chromium` in the backend venv once.
+ * Call Shopee's item/get API directly from the user's browser.
+ *
+ * The browser already has valid Shopee session cookies from normal browsing
+ * so DataDome lets the request through — unlike server-side requests which
+ * are blocked with 403 Forbidden from data-center IPs.
+ */
+async function shopeeDirectBrowserFetch(url: string): Promise<ScrapeMarketplaceResult> {
+	const ids = parseShopeeIds(url);
+	if (!ids) return { ok: false, error: 'Could not parse Shopee product IDs from URL.' };
+
+	const { shopId, itemId } = ids;
+	const apiUrl = `https://shopee.ph/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`;
+
+	try {
+		const res = await fetch(apiUrl, {
+			credentials: 'include', // sends existing shopee.ph cookies
+			headers: {
+				Accept: 'application/json, text/plain, */*',
+				Referer: url,
+				'X-Requested-With': 'XMLHttpRequest'
+			}
+		});
+
+		if (!res.ok) {
+			return { ok: false, error: `Shopee API returned HTTP ${res.status}` };
+		}
+
+		const data = (await res.json()) as Record<string, unknown>;
+
+		// Validate we got useful product data
+		const dataField = data.data;
+		const item =
+			typeof dataField === 'object' && dataField !== null
+				? (dataField as Record<string, unknown>).item
+				: null;
+
+		if (item && typeof (item as Record<string, unknown>).price_min === 'number') {
+			return { ok: true, bodyJson: JSON.stringify(data) };
+		}
+
+		// Got a response but it's an error payload (e.g. {"error": -1})
+		const errCode = data.error;
+		if (errCode !== undefined && errCode !== 0) {
+			return {
+				ok: false,
+				error: `Shopee API error ${String(errCode)}. Make sure you are logged in to shopee.ph in this browser, then try again.`
+			};
+		}
+
+		// Return whatever we have — the frontend parser will extract what it can
+		return { ok: true, bodyJson: JSON.stringify(data) };
+	} catch (e) {
+		return {
+			ok: false,
+			error: e instanceof Error ? e.message : 'Browser fetch to Shopee failed.'
+		};
+	}
+}
+
+/**
+ * Scrape a marketplace product URL.
+ *
+ * For Shopee: tries a direct browser-side API call first (uses the user's
+ * existing shopee.ph session cookies — bypasses DataDome server-IP blocks).
+ * Falls back to the server-side backend scrape for all other marketplaces or
+ * if the direct Shopee fetch fails.
  */
 export async function scrapeMarketplaceFromBrowser(
 	url: string,
 	marketplace: ChannelMarketplace
 ): Promise<ScrapeMarketplaceResult> {
+	// Shopee: try direct browser fetch first (bypasses DataDome server blocks)
+	if (marketplace === 'shopee') {
+		const direct = await shopeeDirectBrowserFetch(url);
+		if (direct.ok) return direct;
+		// Fall through to backend as last resort (helps local dev / relaxed CORS)
+	}
+
 	const scrapeBase = getScrapeBase();
 	try {
 		const res = await fetch(`${scrapeBase}/marketplace/scrape`, {
@@ -89,4 +177,3 @@ export async function scrapeMarketplaceFromBrowser(
 		};
 	}
 }
-
