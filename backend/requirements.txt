@@ -8,6 +8,5 @@ python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 email-validator==2.1.0.post1
 python-multipart==0.0.20
-playwright>=1.49.0
 numpy>=2.0.0
 scikit-learn>=1.5.0
