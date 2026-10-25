@@ -3,21 +3,124 @@ Browser-based marketplace capture using Playwright (real Chromium session).
 
 Uses the **sync** Playwright API and runs it in a worker thread from FastAPI.
 The async Playwright API often raises NotImplementedError on Windows inside Uvicorn.
+
+Anti-bot mitigations applied:
+  - navigator.webdriver patched to undefined before page scripts run
+  - chrome.runtime stub injected so feature-detection passes
+  - Randomised viewport, realistic Accept-Language / platform headers
+  - Human-like scroll on page load to trigger lazy-loaded price containers
+  - Lazada: wait for network idle so MTOP/ACS XHRs finish, then extract
+    window.__moduleData__ / window.pageData / window.__INIT_DATA__
+  - Shopee: multiple capture paths (XHR hook → context.request → in-page
+    fetch → window.__INITIAL_STATE__ → DOM text fallback)
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 from urllib.parse import urlparse
 
-PAGE_TIMEOUT_MS = 55_000
-EXTRA_WAIT_MS = 4_000
+PAGE_TIMEOUT_MS = 60_000   # increased for slower cloud environments
+EXTRA_WAIT_MS   = 6_000    # wait after domcontentloaded so XHRs fire
 
+# ---------------------------------------------------------------------------
+# Stealth injection – paste into every new page before navigation
+# ---------------------------------------------------------------------------
+_STEALTH_INIT_SCRIPT = """
+() => {
+    // 1. Hide webdriver flag
+    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+
+    // 2. Stub chrome runtime so sites don't see a "missing" chrome object
+    if (!window.chrome) {
+        window.chrome = {runtime: {}};
+    }
+
+    // 3. Spoof plugins length (headless Chromium has 0 plugins)
+    Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+
+    // 4. Spoof languages
+    Object.defineProperty(navigator, 'languages', {get: () => ['en-PH', 'en-US', 'en']});
+
+    // 5. Spoof platform
+    Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+
+    // 6. Remove headless-only properties
+    delete navigator.__proto__.webdriver;
+}
+"""
+
+_HUMAN_SCROLL_SCRIPT = """
+async () => {
+    await new Promise(resolve => {
+        let total = 0;
+        const step = 120;
+        const timer = setInterval(() => {
+            window.scrollBy(0, step);
+            total += step;
+            if (total >= Math.min(document.body.scrollHeight * 0.6, 2400)) {
+                clearInterval(timer);
+                resolve();
+            }
+        }, 80);
+    });
+}
+"""
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _make_browser_args() -> list[str]:
+    return [
+        "--disable-blink-features=AutomationControlled",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--single-process",
+        "--no-zygote",
+        "--disable-web-security",
+        "--disable-features=IsolateOrigins,site-per-process",
+        "--flag-switches-begin",
+        "--disable-site-isolation-trials",
+        "--flag-switches-end",
+    ]
+
+
+def _make_context_kwargs() -> dict[str, Any]:
+    return dict(
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+        locale="en-PH",
+        timezone_id="Asia/Manila",
+        viewport={"width": 1366, "height": 768},
+        extra_http_headers={
+            "Accept-Language": "en-PH,en-US;q=0.9,en;q=0.8",
+            "Accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,image/apng,*/*;q=0.8"
+            ),
+            "sec-ch-ua": (
+                '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"'
+            ),
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+        },
+    )
+
+
+# ===========================================================================
+# SHOPEE
+# ===========================================================================
 
 def _shopee_xhr_looks_like_product_api(rurl: str) -> bool:
-    """Shopee renames routes; accept common PDP / item JSON endpoints (not a single item/get)."""
+    """Shopee renames routes; accept common PDP / item JSON endpoints."""
     if "shopee" not in rurl and "api/v4" not in rurl and "api/v2" not in rurl:
         return False
     return any(
@@ -210,7 +313,7 @@ def _try_inpage_item_get(page: Any, origin: str, item_id: str, shop_id: str) -> 
         return None
 
 
-def _extract_shopee_dom_price_title(page: Any) -> dict[str, Any] | None:
+def _extract_dom_price_title(page: Any) -> dict[str, Any] | None:
     """Read listing title and ₱ price from visible page / JSON-LD / meta when APIs error."""
     try:
         out = page.evaluate(
@@ -293,26 +396,14 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--single-process",
-                "--no-zygote",
-            ],
+            args=_make_browser_args(),
         )
         try:
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-                ),
-                locale="en-PH",
-                timezone_id="Asia/Manila",
-                viewport={"width": 1365, "height": 900},
-            )
+            context = browser.new_context(**_make_context_kwargs())
+
+            # Apply stealth on every new page automatically
+            context.add_init_script(_STEALTH_INIT_SCRIPT)
+
             page = context.new_page()
 
             def on_response(response) -> None:
@@ -337,6 +428,13 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
                 page.wait_for_timeout(EXTRA_WAIT_MS)
             except Exception as exc:
                 return False, None, f"Navigation failed: {exc!s}"
+
+            # Human-like scroll to trigger lazy-loaded price elements
+            try:
+                page.evaluate(_HUMAN_SCROLL_SCRIPT)
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
 
             shop_id, item_id, origin = _parse_shopee_listing_ids(url)
             # Cookie-aware fetch often succeeds when XHR hooks miss or return errors first.
@@ -399,7 +497,7 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
             payload = _pick_best_shopee_payload(captured)
             if not _shopee_payload_usable_for_import(payload):
                 page.wait_for_timeout(2000)
-                dom = _extract_shopee_dom_price_title(page)
+                dom = _extract_dom_price_title(page)
                 if dom and shop_id and item_id:
                     captured.append(
                         _synthetic_item_get_payload(
@@ -424,11 +522,9 @@ def scrape_shopee_sync(url: str) -> tuple[bool, str | None, str | None]:
         return False, None, str(exc)
 
 
-def _pick_last_json_object(objs: list[Any]) -> Any | None:
-    if not objs:
-        return None
-    return objs[-1]
-
+# ===========================================================================
+# LAZADA
+# ===========================================================================
 
 def _lazada_xhr_looks_useful(rurl: str) -> bool:
     """Lazada PH uses MTOP, ACS, PDP modules — URL segments vary by release."""
@@ -461,75 +557,84 @@ def _lazada_xhr_looks_useful(rurl: str) -> bool:
     )
 
 
-def _extract_lazada_dom_price_title(page: Any) -> dict[str, Any] | None:
-    """Same ₱ / meta / JSON-LD strategy as Shopee when XHR payloads omit plain price keys."""
+def _lazada_extract_page_bootstrap(page: Any) -> dict[str, Any] | None:
+    """Extract window bootstrap data from Lazada page JS context."""
     try:
-        out = page.evaluate(
+        bootstrap = page.evaluate(
             """() => {
-                const result = { title: '', pricePeso: null };
-                const t1 = document.querySelector('h1');
-                if (t1 && t1.innerText) result.title = t1.innerText.trim();
-                if (!result.title) {
-                    const og = document.querySelector('meta[property="og:title"]');
-                    if (og) result.title = (og.getAttribute('content') || '').trim();
+                try {
+                    const out = {};
+                    if (typeof window.__moduleData__ !== 'undefined') out.__moduleData__ = window.__moduleData__;
+                    if (typeof window.pageData !== 'undefined') out.pageData = window.pageData;
+                    if (typeof window.__INIT_DATA__ !== 'undefined') out.__INIT_DATA__ = window.__INIT_DATA__;
+                    if (typeof window.__data !== 'undefined') out.__data = window.__data;
+                    if (typeof window.g_config !== 'undefined') out.g_config = window.g_config;
+                    return Object.keys(out).length > 0 ? out : null;
+                } catch (e) {
+                    return null;
                 }
-                const metaPrice =
-                    document.querySelector('meta[property="product:price:amount"]') ||
-                    document.querySelector('meta[property="og:price:amount"]');
-                if (metaPrice) {
-                    const s = metaPrice.getAttribute('content');
-                    const v = parseFloat(String(s || '').replace(/,/g, ''));
-                    if (!isNaN(v) && v > 0) result.pricePeso = v;
-                }
-                if (result.pricePeso == null) {
-                    const scripts = document.querySelectorAll('script[type="application/ld+json"]');
-                    for (const sc of scripts) {
-                        try {
-                            const j = JSON.parse(sc.textContent || '{}');
-                            const nodes = Array.isArray(j) ? j : [j];
-                            for (const node of nodes) {
-                                if (!node || typeof node !== 'object') continue;
-                                const offers = node.offers;
-                                const off = Array.isArray(offers) ? offers[0] : offers;
-                                let p = off && off.price != null ? off.price : node.price;
-                                if (typeof p === 'string') p = parseFloat(p.replace(/,/g, ''));
-                                if (typeof p === 'number' && !isNaN(p) && p > 0) {
-                                    result.pricePeso = p;
-                                    break;
-                                }
-                            }
-                            if (result.pricePeso != null) break;
-                        } catch (e) {}
-                    }
-                }
-                if (result.pricePeso == null) {
-                    const body = document.body ? document.body.innerText : '';
-                    const head = body.slice(0, 8000);
-                    const re = /(?:₱|\\u20b1|PHP|P)\\s*([\\d,]+(?:\\.\\d{1,2})?)/gi;
-                    let m;
-                    const found = [];
-                    while ((m = re.exec(head)) !== null) {
-                        const v = parseFloat(m[1].replace(/,/g, ''));
-                        if (!isNaN(v) && v >= 1 && v < 100000000) found.push(v);
-                    }
-                    if (found.length === 1) result.pricePeso = found[0];
-                    else if (found.length > 1) {
-                        const uniq = [...new Set(found)].sort((a, b) => a - b);
-                        result.pricePeso = uniq[Math.floor(uniq.length / 2)];
-                    }
-                }
-                return result;
             }"""
         )
-        if not isinstance(out, dict):
-            return None
-        price = out.get("pricePeso")
-        title = out.get("title") if isinstance(out.get("title"), str) else ""
-        if isinstance(price, (int, float)) and price > 0:
-            return {"title": title or "", "price_peso": float(price)}
-        return None
+        return bootstrap if isinstance(bootstrap, dict) else None
     except Exception:
         return None
+
+
+def _lazada_extract_next_data(page: Any) -> dict[str, Any] | None:
+    """Try extracting __NEXT_DATA__ script tag which Lazada sometimes uses."""
+    try:
+        result = page.evaluate(
+            """() => {
+                try {
+                    const el = document.getElementById('__NEXT_DATA__');
+                    if (el && el.textContent) return JSON.parse(el.textContent);
+                    return null;
+                } catch(e) { return null; }
+            }"""
+        )
+        return result if isinstance(result, dict) else None
+    except Exception:
+        return None
+
+
+def _lazada_extract_from_page_source(page: Any) -> list[dict[str, Any]]:
+    """
+    Extract JSON blobs embedded in <script> tags in the page source.
+    Lazada embeds product data inside script tags as window.__moduleData__ = {...}
+    """
+    captured: list[dict[str, Any]] = []
+    try:
+        scripts_text: list[str] = page.evaluate(
+            """() => {
+                const scripts = [];
+                document.querySelectorAll('script').forEach(s => {
+                    if (s.textContent && s.textContent.length > 100) {
+                        scripts.push(s.textContent);
+                    }
+                });
+                return scripts;
+            }"""
+        )
+        for script in scripts_text:
+            # Look for window.pageData = {...}
+            patterns = [
+                r"window\.__moduleData__\s*=\s*(\{.+?\});?\s*(?:window\.|var |let |const |$)",
+                r"window\.pageData\s*=\s*(\{.+?\});?\s*(?:window\.|var |let |const |$)",
+                r"window\.__INIT_DATA__\s*=\s*(\{.+?\});?\s*(?:window\.|var |let |const |$)",
+                r"var\s+__moduleData__\s*=\s*(\{.+?\});",
+            ]
+            for pat in patterns:
+                m = re.search(pat, script, re.DOTALL)
+                if m:
+                    try:
+                        obj = json.loads(m.group(1))
+                        if isinstance(obj, dict) and obj:
+                            captured.append(obj)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return captured
 
 
 def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
@@ -546,26 +651,14 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--single-process",
-                "--no-zygote",
-            ],
+            args=_make_browser_args(),
         )
         try:
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-                ),
-                locale="en-PH",
-                timezone_id="Asia/Manila",
-                viewport={"width": 1365, "height": 900},
-            )
+            context = browser.new_context(**_make_context_kwargs())
+
+            # Apply stealth on every new page automatically
+            context.add_init_script(_STEALTH_INIT_SCRIPT)
+
             page = context.new_page()
 
             def on_response(response) -> None:
@@ -589,43 +682,56 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
                 page.wait_for_timeout(EXTRA_WAIT_MS)
-                page.wait_for_timeout(2000)
             except Exception as exc:
                 return False, None, f"Navigation failed: {exc!s}"
 
+            # Human-like scroll to trigger lazy-loaded price elements
             try:
-                bootstrap = page.evaluate(
-                    """() => {
-                        try {
-                            return {
-                                __moduleData__:
-                                    typeof window.__moduleData__ !== 'undefined'
-                                    ? window.__moduleData__
-                                    : null,
-                                pageData:
-                                    typeof window.pageData !== 'undefined' ? window.pageData : null,
-                                __INIT_DATA__:
-                                    typeof window.__INIT_DATA__ !== 'undefined'
-                                    ? window.__INIT_DATA__
-                                    : null,
-                            };
-                        } catch (e) {
-                            return null;
-                        }
-                    }"""
-                )
-                if bootstrap and isinstance(bootstrap, dict):
-                    has_any = any(
-                        bootstrap.get(k) is not None
-                        for k in ("__moduleData__", "pageData", "__INIT_DATA__")
-                    )
-                    if has_any:
-                        captured.append({"_lazadaPageBootstrap": bootstrap})
+                page.evaluate(_HUMAN_SCROLL_SCRIPT)
+                page.wait_for_timeout(2000)
             except Exception:
                 pass
 
+            # Try additional wait for network to settle (MTOP XHRs are async)
+            try:
+                page.wait_for_load_state("networkidle", timeout=8_000)
+            except Exception:
+                pass
+
+            # Path 1: JS window bootstrap objects
+            bootstrap = _lazada_extract_page_bootstrap(page)
+            if bootstrap and isinstance(bootstrap, dict):
+                has_any = any(
+                    bootstrap.get(k) is not None
+                    for k in ("__moduleData__", "pageData", "__INIT_DATA__", "__data", "g_config")
+                )
+                if has_any:
+                    captured.append({"_lazadaPageBootstrap": bootstrap})
+
+            # Path 2: __NEXT_DATA__ if present
+            next_data = _lazada_extract_next_data(page)
+            if next_data:
+                captured.append({"_lazadaNextData": next_data})
+
+            # Path 3: inline script tag scanning (regex fallback)
+            script_blobs = _lazada_extract_from_page_source(page)
+            for blob in script_blobs:
+                captured.append({"_lazadaPageBootstrap": blob})
+
+            # Path 4: DOM fallback (meta/JSON-LD/₱ text scan)
             if not captured:
-                dom = _extract_lazada_dom_price_title(page)
+                dom = _extract_dom_price_title(page)
+                if dom and dom.get("price_peso"):
+                    captured.append(
+                        {
+                            "price": dom["price_peso"],
+                            "title": dom.get("title") or "",
+                            "_pricewise_source": "dom_fallback",
+                        }
+                    )
+            else:
+                # Even if we have bootstrap data, also try DOM for title/price cross-check
+                dom = _extract_dom_price_title(page)
                 if dom and dom.get("price_peso"):
                     captured.append(
                         {
@@ -637,16 +743,39 @@ def scrape_lazada_sync(url: str) -> tuple[bool, str | None, str | None]:
         finally:
             browser.close()
 
-    payload = _pick_last_json_object(captured)
-    if payload is None:
+    if not captured:
         return (
             False,
             None,
-            "Could not capture Lazada product JSON. Try another listing URL or Advanced → paste JSON.",
+            "Could not capture Lazada product JSON. The page may be blocking automated access. "
+            "Try another listing URL or use Advanced → paste JSON manually.",
         )
+
+    # Prefer bootstrap payload; fall back to last captured
+    payload: Any | None = None
+    for c in captured:
+        if isinstance(c, dict) and "_lazadaPageBootstrap" in c:
+            payload = c
+            break
+    if payload is None:
+        for c in captured:
+            if isinstance(c, dict) and "_lazadaNextData" in c:
+                payload = c
+                break
+    if payload is None:
+        payload = captured[-1]
 
     if isinstance(payload, dict):
         payload["_pricewisePageUrl"] = url
+
+    # If we only got dom_fallback and nothing better, still try to use it
+    if (
+        payload is not None
+        and isinstance(payload, dict)
+        and payload.get("_pricewise_source") == "dom_fallback"
+        and not payload.get("_lazadaPageBootstrap")
+    ):
+        pass  # dom_fallback is valid — frontend parseLazadaProductJson handles it
 
     try:
         return True, json.dumps(payload), None

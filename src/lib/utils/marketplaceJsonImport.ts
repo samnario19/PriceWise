@@ -511,18 +511,29 @@ function lazadaExtractMoneyPhp(v: unknown): number {
 	return 0;
 }
 
-/** Playwright bundles __moduleData__ / pageData / __INIT_DATA__ — parse each fragment. */
+/** Playwright bundles __moduleData__ / pageData / __INIT_DATA__ / __data / g_config — parse each fragment. */
 function lazadaEffectiveRoots(root: Record<string, unknown>): Record<string, unknown>[] {
+	const parts: Record<string, unknown>[] = [];
+
+	// Path 1: _lazadaPageBootstrap (Playwright window extraction)
 	const bs = root._lazadaPageBootstrap;
 	if (bs && typeof bs === 'object') {
 		const b = bs as Record<string, unknown>;
-		const parts: Record<string, unknown>[] = [];
-		for (const key of ['__moduleData__', 'pageData', '__INIT_DATA__'] as const) {
+		for (const key of ['__moduleData__', 'pageData', '__INIT_DATA__', '__data', 'g_config'] as const) {
 			const v = b[key];
 			if (v && typeof v === 'object' && !Array.isArray(v)) parts.push(v as Record<string, unknown>);
 		}
-		if (parts.length) return [...parts, root];
+		// Also push the bootstrap itself as a root for top-level key walking
+		parts.push(b);
 	}
+
+	// Path 2: _lazadaNextData (Next.js __NEXT_DATA__ extraction)
+	const nd = root._lazadaNextData;
+	if (nd && typeof nd === 'object' && !Array.isArray(nd)) {
+		parts.push(nd as Record<string, unknown>);
+	}
+
+	if (parts.length) return [...parts, root];
 	return [root];
 }
 
@@ -761,6 +772,29 @@ export function parseLazadaProductJson(
 	if (!root || typeof root !== 'object') return { ok: false, error: 'Unexpected JSON root.' };
 
 	const r = root as Record<string, unknown>;
+
+	// Fast path: simple DOM-fallback shape {price, title, _pricewise_source: 'dom_fallback'}
+	if (r._pricewise_source === 'dom_fallback') {
+		const rawPrice = r.price;
+		const pricePhp =
+			typeof rawPrice === 'number' && rawPrice > 0
+				? Math.round(rawPrice * 100) / 100
+				: 0;
+		if (pricePhp > 0) {
+			const title = typeof r.title === 'string' && r.title.trim() ? r.title.trim() : undefined;
+			const dims = guessLazadaDimsFromHybrid([r], title, local);
+			return {
+				ok: true,
+				productName: title,
+				patch: {
+					supplierChannelLanded: { lazada: pricePhp },
+					...dims,
+					listingShippingFee: 0
+				}
+			};
+		}
+	}
+
 	const roots = lazadaEffectiveRoots(r);
 
 	let selectedSkuId: string | number | null = lazadaSkuIdFromListingUrl(r._pricewisePageUrl);
