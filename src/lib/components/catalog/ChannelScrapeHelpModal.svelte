@@ -200,13 +200,11 @@
 						Sync listing ({channelLabel})
 					</h2>
 					<p class="mt-1 text-sm text-zinc-500">
-						Paste the product link and click <strong class="font-medium text-zinc-700">Save &amp; sync</strong>. The PriceWise
-						API opens the page in Chromium (Playwright), captures marketplace JSON, and fills package ₱ and units — same as
-						a normal shopper session.
-					</p>
-					<p class="mt-2 text-xs text-zinc-400">
-						Requires the backend running (<code class="rounded bg-zinc-100 px-1 text-zinc-700">run.bat</code>) and a one-time
-						<code class="rounded bg-zinc-100 px-1 text-zinc-700">playwright install chromium</code> in the backend venv.
+						{#if marketplace === 'shopee'}
+							Paste the product link below, then use the <strong class="font-medium text-zinc-700">Open Shopee API</strong> button to get the price JSON in one click.
+						{:else}
+							Paste the product link and click <strong class="font-medium text-zinc-700">Save &amp; sync</strong>. The backend fetches pricing and fills package ₱ and units automatically.
+						{/if}
 					</p>
 				</div>
 				<button type="button" class="rounded-xl p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700" onclick={close} aria-label="Close">
@@ -221,43 +219,38 @@
 			>
 				<p class="font-semibold">{marketplaceGuideTitle(marketplace)}</p>
 				{#if marketplace === 'shopee'}
-					<ul class="mt-2 list-inside list-disc space-y-1 text-[13px] leading-snug opacity-95">
-						<li>
-							Listing URLs end with
-							<code class="rounded bg-white/80 px-1 py-0.5 text-xs">-i.&#123;shop&#125;.&#123;item&#125;</code>. The worker captures
-							Shopee PDP XHRs (e.g. paths containing
-							<code class="text-xs">item/get</code>, <code class="text-xs">get_pc</code>, <code class="text-xs">pdp</code>) and page
-							embeds — exact names change by app version.
-						</li>
-						<li>If sync fails (CAPTCHA, block), use Advanced below and paste any product JSON with prices (see steps there).</li>
-					</ul>
 					{#if shopeeApiUrl}
-						<div class="mt-3 space-y-2 rounded-xl bg-white/70 p-3 ring-1 ring-orange-200/60">
-							<p class="text-[11px] font-bold uppercase tracking-wide text-orange-800/80">
-								Constructed API URL (optional — may not match Network tab names)
-							</p>
-							<code class="block break-all text-xs leading-relaxed text-zinc-800">{shopeeApiUrl}</code>
-							<div class="flex flex-wrap gap-2">
-								<button
-									type="button"
-									class="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500"
-									onclick={() => copyText('api', shopeeApiUrl)}
-								>
-									Copy API URL
-								</button>
-								<button
-									type="button"
-									class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-orange-900 ring-1 ring-orange-200 hover:bg-orange-50"
-									onclick={() => copyText('listing', draftUrl.trim())}
-								>
-									Copy listing URL
-								</button>
-							</div>
+						<!-- Primary Shopee flow: open API in new tab while logged in -->
+						<ol class="mt-2 list-decimal space-y-1 pl-5 text-[13px] leading-snug opacity-95">
+							<li>Make sure you are <strong>logged in to shopee.ph</strong> in this browser.</li>
+							<li>Click <strong>Open Shopee API</strong> below — it opens the product's JSON in a new tab.</li>
+							<li>Press <kbd class="rounded bg-white/80 px-1 py-0.5 text-xs">Ctrl+A</kbd> then <kbd class="rounded bg-white/80 px-1 py-0.5 text-xs">Ctrl+C</kbd> to copy all, then paste into the <strong>Advanced</strong> box below.</li>
+						</ol>
+						<div class="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-white/70 p-3 ring-1 ring-orange-200/60">
+							<a
+								href={shopeeApiUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								class="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-orange-500"
+							>
+								<svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/><path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/></svg>
+								Open Shopee API
+							</a>
+							<button
+								type="button"
+								class="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-orange-900 ring-1 ring-orange-200 hover:bg-orange-50"
+								onclick={() => copyText('api', shopeeApiUrl)}
+							>
+								Copy URL instead
+							</button>
+							<code class="block w-full break-all text-[11px] leading-relaxed text-zinc-500">{shopeeApiUrl}</code>
 						</div>
 					{:else if draftUrl.trim()}
 						<p class="mt-2 text-[13px] text-orange-900/80">
-							Use the <strong>full desktop product URL</strong> (path ending in <code class="text-xs">-i.shop.item</code>).
+							Use the <strong>full desktop product URL</strong> — path must end in <code class="text-xs">-i.shop.item</code> (e.g. <code class="text-xs">shopee.ph/Product-name-i.649906772.23014373373</code>).
 						</p>
+					{:else}
+						<p class="mt-2 text-[13px] text-orange-900/80">Paste the Shopee product URL above to get started.</p>
 					{/if}
 				{:else}
 					<ul class="mt-2 list-inside list-disc space-y-1 text-[13px] leading-snug opacity-95">
@@ -343,18 +336,22 @@
 				>
 					Cancel
 				</button>
-				<button
-					type="submit"
-					class="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-					disabled={syncSubmitting}
-				>
-					{#if syncSubmitting}
-						<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true"></span>
-						Syncing…
-					{:else}
-						Save &amp; sync listing
-					{/if}
-				</button>
+				{#if marketplace !== 'shopee'}
+					<button
+						type="submit"
+						class="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+						disabled={syncSubmitting}
+					>
+						{#if syncSubmitting}
+							<span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden="true"></span>
+							Syncing…
+						{:else}
+							Save &amp; sync listing
+						{/if}
+					</button>
+				{:else}
+					<p class="text-[13px] text-zinc-500">Use <strong>Open Shopee API</strong> above, then paste the JSON in Advanced ↓</p>
+				{/if}
 			</div>
 
 			<details class="mt-8 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/90 px-4 py-3">
