@@ -91,7 +91,7 @@
 						<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">Catalog</p>
 						<h2 id="add-ing-title" class="mt-1 text-xl font-bold tracking-tight">Add ingredient</h2>
 						<p class="mt-2 text-sm leading-relaxed text-zinc-400">
-							Package price, size, shipping, and unit — same flow as adding a line on a recipe.
+							Tell PriceWise how much you paid for a package — it will automatically figure out the cost per gram, ml, or piece.
 						</p>
 					</div>
 					<button
@@ -106,28 +106,33 @@
 			</div>
 
 			<div class="space-y-3 p-6">
+				<!-- Step 1: Name -->
 				<div>
-					<label class="text-xs font-semibold uppercase text-zinc-500" for="im-name">Ingredient</label>
+					<label class="text-xs font-semibold uppercase text-zinc-500" for="im-name">① Ingredient name</label>
 					<input
 						id="im-name"
 						bind:value={name}
 						required
 						class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-						placeholder="e.g. Matcha powder"
+						placeholder="e.g. Matcha powder, White sugar, Oat milk"
 					/>
+					<p class="mt-1 text-xs text-zinc-500">What do you call this ingredient in your recipes?</p>
 				</div>
+				<!-- Step 2: Supplier -->
 				<div>
-					<label class="text-xs font-semibold uppercase text-zinc-500" for="im-sup">Supplier</label>
+					<label class="text-xs font-semibold uppercase text-zinc-500" for="im-sup">② Where do you buy it?</label>
 					<input
 						id="im-sup"
 						bind:value={supplier}
 						class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-						placeholder="Supplier name"
+						placeholder="e.g. S&R, Lazada, Local market"
 					/>
+					<p class="mt-1 text-xs text-zinc-500">Optional — helps you remember where you sourced this batch.</p>
 				</div>
+				<!-- Step 3: Purchase info -->
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-packp">Package price (₱)</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-packp">③ How much did you pay? (₱)</label>
 						<input
 							id="im-packp"
 							type="number"
@@ -135,10 +140,12 @@
 							step="any"
 							bind:value={packagePrice}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="e.g. 250"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">Enter the total price of the package you bought.</p>
 					</div>
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-packq">Package size</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-packq">④ How much is in the package?</label>
 						<input
 							id="im-packq"
 							type="number"
@@ -146,12 +153,14 @@
 							step="any"
 							bind:value={packageSize}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="e.g. 1"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">e.g. if you bought a 1 kg bag, enter 1.</p>
 					</div>
 				</div>
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-ship">Shipping (₱)</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-ship">⑤ Shipping fee (₱)</label>
 						<input
 							id="im-ship"
 							type="number"
@@ -159,10 +168,12 @@
 							step="any"
 							bind:value={shippingFee}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="0"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">Enter 0 if you picked it up / no delivery fee.</p>
 					</div>
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-unit">Package unit</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="im-unit">⑥ Unit of that package</label>
 						<select
 							id="im-unit"
 							bind:value={packageUnit}
@@ -172,6 +183,7 @@
 								<option value={u.value}>{u.label}</option>
 							{/each}
 						</select>
+						<p class="mt-1 text-xs text-zinc-500">e.g. kg, g, ml, L, pieces — match what's on the package label.</p>
 					</div>
 				</div>
 
@@ -182,9 +194,9 @@
 						class="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-orange-600 focus:ring-orange-500"
 					/>
 					<span>
-						<span class="font-semibold text-zinc-800">Local-only SKU</span>
+						<span class="font-semibold text-zinc-800">I never order this online (Lazada/Shopee)</span>
 						<span class="mt-0.5 block text-xs leading-snug text-zinc-600">
-							Use for ice, water, or anything you never buy on Lazada/Shopee. Recipe marketplace COGS uses your catalog unit cost; no listing required.
+							Check this for ice, water, or anything you always buy locally. PriceWise will still use your catalog cost — no online listing needed.
 						</span>
 					</span>
 				</label>
@@ -193,9 +205,10 @@
 					<div class="text-emerald-900">
 						Base quantity: <strong>{formatDecimal(previewBase.quantity)}</strong> {previewBase.unit}
 					</div>
-					<span class="text-emerald-800">Computed unit cost:</span>
+					<span class="text-emerald-800">Your cost per {previewBase.unit}:</span>
 					<strong class="ml-2 tabular-nums text-emerald-950">{formatPhp(previewUnitCost)}</strong>
-					<span class="text-emerald-700"> / base unit</span>
+					<span class="text-emerald-700"> / {previewBase.unit}</span>
+					<p class="mt-1.5 text-xs text-emerald-700">💡 PriceWise uses this to automatically calculate recipe costs whenever you add this ingredient to a recipe.</p>
 				</div>
 
 				<div class="flex gap-2 border-t border-zinc-100 pt-5">

@@ -103,27 +103,35 @@
 			</div>
 
 			<div class="space-y-3 p-6">
+				<!-- Step 1: Item Name -->
 				<div>
-					<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-name">Item</label>
+					<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-name">① Packaging / Item name</label>
 					<input
 						id="ot-name"
 						bind:value={name}
 						required
 						class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
-						placeholder="e.g. 12oz cup"
+						placeholder="e.g. 16oz Cold Cup, Dome Lid, Kraft Paper Straw, Takeout Bag"
 					/>
+					<p class="mt-1 text-xs text-zinc-500">What is this packaging or non-ingredient item called?</p>
 				</div>
+
+				<!-- Step 2: Supplier -->
 				<div>
-					<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-sup">Supplier</label>
+					<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-sup">② Where do you buy it?</label>
 					<input
 						id="ot-sup"
 						bind:value={supplier}
 						class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+						placeholder="e.g. Shopee Packaging Hub, Divisoria Wholesaler, U-Pack"
 					/>
+					<p class="mt-1 text-xs text-zinc-500">Optional — helps you keep track of which supplier provided this stock.</p>
 				</div>
+
+				<!-- Step 3: Purchase info -->
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-packp">Package price (₱)</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-packp">③ How much did you pay? (₱)</label>
 						<input
 							id="ot-packp"
 							type="number"
@@ -131,10 +139,12 @@
 							step="any"
 							bind:value={packagePrice}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="e.g. 350"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">Total purchase price of the pack or sleeve.</p>
 					</div>
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-packq">Package size</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-packq">④ Pieces or quantity in pack</label>
 						<input
 							id="ot-packq"
 							type="number"
@@ -142,12 +152,15 @@
 							step="any"
 							bind:value={packageSize}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="e.g. 100"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">e.g. 50 cups in a sleeve, or 100 lids in a bag.</p>
 					</div>
 				</div>
+
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-ship">Shipping (₱)</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-ship">⑤ Shipping fee (₱)</label>
 						<input
 							id="ot-ship"
 							type="number"
@@ -155,10 +168,12 @@
 							step="any"
 							bind:value={shippingFee}
 							class="mt-1 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+							placeholder="0"
 						/>
+						<p class="mt-1 text-xs text-zinc-500">Enter 0 if picked up or with free shipping voucher.</p>
 					</div>
 					<div>
-						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-unit">Package unit</label>
+						<label class="text-xs font-semibold uppercase text-zinc-500" for="ot-unit">⑥ Unit of measurement</label>
 						<select
 							id="ot-unit"
 							bind:value={packageUnit}
@@ -168,6 +183,7 @@
 								<option value={u.value}>{u.label}</option>
 							{/each}
 						</select>
+						<p class="mt-1 text-xs text-zinc-500">Usually <strong>piece</strong> for cups, lids, and straws.</p>
 					</div>
 				</div>
 
@@ -178,9 +194,9 @@
 						class="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-sky-600 focus:ring-sky-500"
 					/>
 					<span>
-						<span class="font-semibold text-zinc-800">Local-only SKU</span>
+						<span class="font-semibold text-zinc-800">I never order this online (Lazada/Shopee)</span>
 						<span class="mt-0.5 block text-xs leading-snug text-zinc-600">
-							Not bought on Lazada/Shopee. Recipe marketplace COGS uses your catalog unit cost here.
+							Check this if you always source these locally. PriceWise will use your catalog cost directly without requiring an online listing.
 						</span>
 					</span>
 				</label>
@@ -189,9 +205,10 @@
 					<div class="text-sky-900">
 						Base quantity: <strong>{formatDecimal(previewBase.quantity)}</strong> {previewBase.unit}
 					</div>
-					<span class="text-sky-900">Computed unit cost:</span>
+					<span class="text-sky-900">Your cost per {previewBase.unit}:</span>
 					<strong class="ml-2 tabular-nums text-sky-950">{formatPhp(previewUnitCost)}</strong>
-					<span class="text-sky-800"> / base unit</span>
+					<span class="text-sky-800"> / {previewBase.unit}</span>
+					<p class="mt-1.5 text-xs text-sky-700">💡 Whenever you assign a cup or lid to a recipe, PriceWise will calculate the packaging cost automatically.</p>
 				</div>
 
 				<div class="flex gap-2 border-t border-zinc-100 pt-5">

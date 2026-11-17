@@ -412,15 +412,22 @@
 								</svg>
 							</div>
 							<div class="min-w-0 flex-1">
-								<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-400">Recipe Details</p>
-								<div class="relative flex items-center">
+								<div class="flex items-center gap-1.5">
+									<p class="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-400">Recipe Name</p>
+									<span class="text-[10px] text-zinc-400">(click text to edit)</span>
+								</div>
+								<div class="group relative flex items-center">
 									<input
 										id="recipe-name-field"
 										bind:value={draftName}
 										onchange={persistName}
-										placeholder="Recipe name"
-										class="w-full truncate border-b border-white/20 bg-transparent py-0.5 text-lg font-bold tracking-tight text-white outline-none transition-colors focus:border-orange-400 sm:text-2xl"
+										placeholder="e.g. Iced Spanish Latte"
+										title="Click to edit recipe name"
+										class="w-full truncate border-b border-white/20 bg-transparent py-0.5 pr-6 text-lg font-bold tracking-tight text-white outline-none transition-colors focus:border-orange-400 sm:text-2xl"
 									/>
+									<span class="pointer-events-none absolute right-0 text-white/30 transition group-hover:text-orange-400">
+										<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+									</span>
 								</div>
 							</div>
 						</div>
@@ -838,7 +845,7 @@
 							</div>
 							<h4 class="mt-3 text-sm font-bold text-zinc-800">No items added to this recipe yet</h4>
 							<p class="mt-1 max-w-sm text-xs text-zinc-500">
-								Use the section below to add ingredients or packaging cups, lids, and straws to calculate this recipe's cost and availability.
+								No ingredients in your catalog yet! Click <strong>'+ New Ingredient'</strong> above to add your first one, then come back here to add it to the recipe.
 							</p>
 						</div>
 					{/if}
@@ -901,21 +908,26 @@
 						</button>
 					</div>
 
-					<!-- Form Inputs: Responsive Stack on Phone, Clean Inline/Grid on Tablet & Desktop -->
-					<div class="grid gap-2.5 sm:grid-cols-12 sm:items-center">
-						<!-- Product Name / Item Dropdown -->
+					<!-- Form Inputs: Clear Field Types with Visible Labels & Beginner Hints -->
+					<div class="grid gap-3 sm:grid-cols-12 sm:items-start">
+						<!-- Field 1: Product Selector (Dropdown) -->
 						<div class="sm:col-span-5">
-							<label class="sr-only" for="modal-add-product">Product Item</label>
+							<label class="block text-xs font-bold uppercase tracking-wider text-zinc-700" for="modal-add-product">
+								{addMode === 'ingredient' ? '1. Select Ingredient' : '1. Select Packaging Item'}
+							</label>
+							<p class="mt-0.5 text-[11px] text-zinc-500">
+								{addMode === 'ingredient' ? 'From your ingredient catalog' : 'Cups, lids, straws, or bags'}
+							</p>
 							{#if addMode === 'ingredient'}
 								<select
 									id="modal-add-product"
 									value={addIngredientProductName}
 									disabled={uniqueIngredientNames.length === 0}
-									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
+									class="mt-1.5 h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
 									onchange={(e) => onAddIngredientProductChange((e.currentTarget as HTMLSelectElement).value)}
 								>
 									{#if uniqueIngredientNames.length === 0}
-										<option value="">— No ingredients in catalog —</option>
+										<option value="">— No ingredients yet (click "+ New" above) —</option>
 									{:else}
 										{#each uniqueIngredientNames as name (name)}
 											<option value={name}>{name}</option>
@@ -927,11 +939,11 @@
 									id="modal-add-product"
 									value={addOtherProductName}
 									disabled={uniqueOtherNames.length === 0}
-									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
+									class="mt-1.5 h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 disabled:bg-zinc-100 disabled:text-zinc-400"
 									onchange={(e) => onAddOtherProductChange((e.currentTarget as HTMLSelectElement).value)}
 								>
 									{#if uniqueOtherNames.length === 0}
-										<option value="">— No packaging items in catalog —</option>
+										<option value="">— No packaging yet (click "+ New" above) —</option>
 									{:else}
 										{#each uniqueOtherNames as name (name)}
 											<option value={name}>{name}</option>
@@ -941,55 +953,74 @@
 							{/if}
 						</div>
 
-						<!-- Quantity & Unit (Side-by-side on all screens) -->
-						<div class="flex items-center gap-2 sm:col-span-4">
-							<div class="relative flex-1">
-								<input
-									id="modal-add-qty"
-									type="number"
-									min="0"
-									step="any"
-									placeholder="Qty"
-									bind:value={addQty}
-									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-center text-sm font-bold tabular-nums text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
-								/>
+						<!-- Field 2 & 3: Quantity (Number) & Unit (Dropdown) -->
+						<div class="sm:col-span-4">
+							<div class="flex items-center justify-between">
+								<label class="block text-xs font-bold uppercase tracking-wider text-zinc-700" for="modal-add-qty">
+									2. Quantity Used
+								</label>
+								<label class="block text-xs font-bold uppercase tracking-wider text-zinc-700" for="modal-add-unit">
+									3. Unit
+								</label>
 							</div>
-							<div class="flex-1">
-								<select
-									id="modal-add-unit"
-									bind:value={addUnit}
-									class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
-								>
-									{#each MEASURE_UNIT_OPTIONS as u}
-										<option value={u.value}>{u.label}</option>
-									{/each}
-								</select>
+							<p class="mt-0.5 text-[11px] text-zinc-500">Amount per single serving/order</p>
+
+							<div class="mt-1.5 flex items-center gap-2">
+								<div class="relative flex-1">
+									<input
+										id="modal-add-qty"
+										type="number"
+										min="0"
+										step="any"
+										placeholder="e.g. 15"
+										bind:value={addQty}
+										class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-center text-sm font-bold tabular-nums text-zinc-900 shadow-2xs outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
+									/>
+								</div>
+								<div class="flex-1">
+									<select
+										id="modal-add-unit"
+										bind:value={addUnit}
+										class="h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-900 shadow-2xs outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15"
+									>
+										{#each MEASURE_UNIT_OPTIONS as u}
+											<option value={u.value}>{u.label}</option>
+										{/each}
+									</select>
+								</div>
 							</div>
 						</div>
 
-						<!-- Submit Button -->
+						<!-- Field 4: Add Action Button -->
 						<div class="sm:col-span-3">
+							<span class="hidden sm:block text-xs font-bold uppercase tracking-wider text-transparent select-none" aria-hidden="true">
+								Action
+							</span>
+							<p class="hidden sm:block mt-0.5 text-[11px] text-transparent select-none" aria-hidden="true">Add line</p>
 							<button
 								type="submit"
 								disabled={!canSubmitAdd}
-								class="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 {addMode ===
+								class="mt-1.5 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl px-4 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 {addMode ===
 								'ingredient'
 									? 'bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 shadow-orange-900/20'
 									: 'bg-gradient-to-r from-zinc-800 to-zinc-900 hover:from-zinc-700 hover:to-zinc-800 shadow-zinc-900/20'}"
 							>
 								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-								<span>Add {addMode === 'ingredient' ? 'Ingredient' : 'Packaging'}</span>
+								<span>Add to Recipe</span>
 							</button>
 						</div>
 					</div>
 
-					<!-- Secondary: Batch/Price tier selector (only shown when multiple price tiers exist) -->
+					<!-- Secondary: Batch / Price Tier Selector with friendly explanation -->
 					{#if addMode === 'ingredient' && addIngredientBatches.length > 1}
-						<div class="flex items-center gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
-							<span class="font-bold text-zinc-500 shrink-0">Price Tier:</span>
+						<div class="rounded-xl border border-amber-200/80 bg-amber-50/60 p-2.5 text-xs">
+							<div class="flex items-center gap-2">
+								<span class="font-bold text-amber-900">📦 Multiple Price Tiers Found:</span>
+								<span class="text-amber-700">Select which stock batch to use for this recipe's cost:</span>
+							</div>
 							<select
 								bind:value={addIngredientMasterId}
-								class="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800 outline-none"
+								class="mt-1.5 w-full rounded-lg border border-amber-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 outline-none focus:border-amber-500"
 							>
 								{#each addIngredientBatches as cat (cat.id)}
 									<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
@@ -999,11 +1030,14 @@
 							</select>
 						</div>
 					{:else if addMode === 'other' && addOtherBatches.length > 1}
-						<div class="flex items-center gap-2 rounded-xl bg-zinc-50 p-2 text-xs">
-							<span class="font-bold text-zinc-500 shrink-0">Price Tier:</span>
+						<div class="rounded-xl border border-sky-200/80 bg-sky-50/60 p-2.5 text-xs">
+							<div class="flex items-center gap-2">
+								<span class="font-bold text-sky-900">📦 Multiple Price Tiers Found:</span>
+								<span class="text-sky-700">Select which stock batch to use for this packaging cost:</span>
+							</div>
 							<select
 								bind:value={addOtherMasterId}
-								class="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800 outline-none"
+								class="mt-1.5 w-full rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-800 outline-none focus:border-sky-500"
 							>
 								{#each addOtherBatches as cat (cat.id)}
 									<option value={cat.id} disabled={isBatchOutOfStock(cat)}>
@@ -1016,22 +1050,22 @@
 
 					<!-- Live Cost Preview & Helpful Conversion Notice -->
 					{#if addPreview && addPreview.qtyOk && addPreview.lineCost !== null}
-						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950">
-							<div class="flex items-center gap-1.5">
-								<span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+						<div class="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3.5 py-2 text-xs text-emerald-950 shadow-2xs">
+							<div class="flex items-center gap-2">
+								<span class="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] text-white">✓</span>
 								<span>
-									<strong>{addPreview.name}</strong> · Base {addPreview.baseUnit} at <strong>{fmt(addPreview.unitCost)}/{addPreview.baseUnit}</strong>
+									<strong>{addPreview.name}</strong> · Cost rate: <strong>{fmt(addPreview.unitCost)} / {addPreview.baseUnit}</strong>
 								</span>
 							</div>
-							<div class="font-bold text-emerald-800">
-								Line Cost: <span>{fmt(addPreview.lineCost)}</span>
+							<div class="font-bold text-emerald-800 text-sm">
+								Serving Cost: <span class="text-emerald-950 font-extrabold">{fmt(addPreview.lineCost)}</span>
 							</div>
 						</div>
 					{:else if addConversionReportShown && addPreview && !addPreview.qtyOk}
 						<div class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
-							<p class="font-bold">Unit mismatch:</p>
+							<p class="font-bold">⚠️ Unit Conversion Needed:</p>
 							<p class="mt-0.5">
-								Cannot convert <strong>{unitLabel(addUnit)}</strong> to catalog base unit <strong>{addPreview.baseUnit}</strong>. Try choosing <strong>{addPreview.baseUnit}</strong> or compatible units.
+								Cannot convert <strong>{unitLabel(addUnit)}</strong> to this item's base unit <strong>{addPreview.baseUnit}</strong>. Please switch the unit dropdown to <strong>{addPreview.baseUnit}</strong> or a compatible unit (e.g. g ↔ kg, or ml ↔ L).
 							</p>
 						</div>
 					{/if}
